@@ -26,10 +26,12 @@ def smartie_reply():
             max_tokens=150,
             temperature=0.7
         )
+        print("OpenAI raw response:", response)
         reply = response.choices[0].message.content
         return jsonify({"reply": reply})
 
     except Exception as e:
+        print("Error from OpenAI:", e)
         return jsonify({"reply": "Oops, something went wrong on my end. Try again later."}), 500
 
 if __name__ == "__main__":
