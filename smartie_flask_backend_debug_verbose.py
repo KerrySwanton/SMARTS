@@ -16,7 +16,7 @@ def smartie_reply():
         print("✅ Smartie route hit - about to parse request"
 
         # Add this to help diagnose
-        print (🛠 Request object:", request)
+        print ("🛠 Request object:", request)
                
         data = request.get_json()
         print("📦 Request JSON:", data)
