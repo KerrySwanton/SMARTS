@@ -1,3 +1,4 @@
+print ("👋 SMARTIE FILE IS RUNNING")
 # Triggering redeploy to force Render sync
 import os
 from flask import Flask, request, jsonify
