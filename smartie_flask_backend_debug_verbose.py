@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
     try:
-        print("✅ Smartie route hit - about to parse request"
+        print("✅ Smartie route hit - about to parse request")
 
         # Add this to help diagnose
         print ("🛠 Request object:", request)
