@@ -16,7 +16,7 @@ A Flask app that serves a supportive AI chatbot using the SMARTS framework.
 
 ### Settings
 - Build Command: `pip install -r requirements.txt`
-- Start Command: `python smartie_flask_backend.py`
+- Start Command: `python smartie_flask_backend_debug.py`
 - Environment variable:
   - Key: `OPENAI_API_KEY`
   - Value: *your real OpenAI API key*
