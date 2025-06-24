@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Set up OpenAI client
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+print("OPENAI_API_KEY exists:", bool(os.environ.get("OPENAI_API_KEY")))
 
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
