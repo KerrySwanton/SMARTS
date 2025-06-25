@@ -29,7 +29,7 @@ def smartie_reply():
         print("🗣️ User input:", user_input)
 
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are Smartie, a warm, supportive health and wellbeing companion."},
                 {"role": "user", "content": user_input}
