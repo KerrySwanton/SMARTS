@@ -43,7 +43,9 @@ def smartie_reply():
         return jsonify({"reply": reply})
 
     except Exception as e:
+        import traceback
         print("❌ Final error handler caught:", e)
+        traceback.print_exc()
         return jsonify({"reply": "Oops, something went wrong."}), 500
 
 if __name__ == "__main__":
