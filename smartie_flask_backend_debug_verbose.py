@@ -1,23 +1,15 @@
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
-print ("✅ OpenAI imported")
+import os
 
 app = Flask(__name__)
 CORS(app)
-
-print ("✅ Flask app and CORS set up")
-
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-print ("🔑 OpenAI client initialized")
 
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
-    print ("✅ Smartie route hit - before try block")
-    
     try:
-        # Attempt to extract JSON payload
         if not request.is_json:
             print("❌ Request is not JSON")
             return jsonify ({"reply": "Request must be in JSON format"}), 400
@@ -43,9 +35,7 @@ def smartie_reply():
         return jsonify({"reply": reply})
 
     except Exception as e:
-        import traceback
-        print("❌ Final error handler caught:", e)
-        traceback.print_exc()
+        print("❌ Error:", str(e))
         return jsonify({"reply": "Oops, something went wrong."}), 500
 
 if __name__ == "__main__":
