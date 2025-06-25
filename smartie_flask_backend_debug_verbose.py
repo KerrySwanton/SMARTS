@@ -14,11 +14,13 @@ print ("🔑 OpenAI client initialized")
 
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
+    print ("✅ Smartie route hit - before try block")
+    
     try:
-        print("✅ Smartie route hit - about to parse request")
-
-        # Add this to help diagnose
-        print ("🛠 Request object:", request)
+        # Attempt to extract JSON payload
+        if not request.is_json:
+            print("❌ Request is not JSON")
+            return jsonify ({"reply": "Request must be in JSON format"}), 400
                
         data = request.get_json()
         print("📦 Request JSON:", data)
@@ -29,23 +31,20 @@ def smartie_reply():
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are Smartie, a warm, supportive health and wellbeing companion built on the eity20 framework. Respond with encouragement, insight, and helpful suggestions."},
+                {"role": "system", "content": "You are Smartie, a warm, supportive health and wellbeing companion."},
                 {"role": "user", "content": user_input}
             ],
             max_tokens=150,
-            temperature=0.7
         )
 
-        print("🤖 OpenAI raw response:", response)
-
         reply = response.choices[0].message.content
-        print("💬 Reply extracted:", reply)
+        print("💬 OpenAI reply:", reply)
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        print("❌ Error from OpenAI:", e)
-        return jsonify({"reply": "Oops, something went wrong on my end. Try again later."}), 500
+        print("❌ Final error handler caught:", e)
+        return jsonify({"reply": "Oops, something went wrong."}), 500
 
 if __name__ == "__main__":
     print("🔐 OPENAI_API_KEY exists:", bool(os.environ.get("OPENAI_API_KEY")))
