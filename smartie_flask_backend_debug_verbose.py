@@ -39,5 +39,4 @@ def smartie_reply():
         return jsonify({"reply": "Oops, something went wrong."}), 500
 
 if __name__ == "__main__":
-    print("🔐 OPENAI_API_KEY exists:", bool(os.environ.get("OPENAI_API_KEY")))
     app.run(host="0.0.0.0", port=5000)
