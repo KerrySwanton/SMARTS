@@ -8,6 +8,8 @@ CORS(app)
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+import traceback
+
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
    try:
@@ -32,7 +34,8 @@ def smartie_reply():
        return jsonify({"reply": reply})
 
    except Exception as e:
-       print("🔥 Error in /smartie:", str(e))
+       print("🔥 ERROR: Something went wrong inside /smartie:")
+       traceback.print_exc() # Print full error
        return jsonify({"reply": "Oops, something went wrong."}), 500
 
 if __name__ == "__main__":
