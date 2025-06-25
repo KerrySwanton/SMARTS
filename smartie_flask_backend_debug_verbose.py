@@ -1,11 +1,6 @@
-print ("👋 Smartie backend file is running")
-
+import os
 from flask import Flask, request, jsonify
-print ("✅ Flask imported")
-
 from flask_cors import CORS
-print ("✅ CORS imported")
-
 from openai import OpenAI
 print ("✅ OpenAI imported")
 
