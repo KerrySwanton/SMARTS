@@ -1,14 +1,21 @@
-print ("👋 SMARTIE FILE IS RUNNING")
-# Triggering redeploy to force Render sync
-import os
+print ("👋 Smartie backend file is running")
+
 from flask import Flask, request, jsonify
+print ("✅ Flask imported")
+
 from flask_cors import CORS
+print ("✅ CORS imported")
+
 from openai import OpenAI
+print ("✅ OpenAI imported")
 
 app = Flask(__name__)
 CORS(app)
 
+print ("✅ Flask app and CORS set up")
+
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+print ("🔑 OpenAI client initialized")
 
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
