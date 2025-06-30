@@ -53,7 +53,7 @@ Normalize human emotions and setbacks. Reinforce that it’s okay to have tough 
         """},
         {"role": "user", "content": user_input}
     ],
-    max_tokens=150,
+    max_tokens=500,
 )
 
        reply = response.choices[0].message.content
