@@ -164,7 +164,7 @@ def smartie_reply():
         print("🧠 User input:", user_input)
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",   # switch to gpt-4 if your account supports it
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
                 {"role": "user", "content": user_input}
