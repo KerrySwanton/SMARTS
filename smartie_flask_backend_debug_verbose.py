@@ -2,6 +2,7 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
+from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 import traceback
 import hashlib
 
@@ -178,7 +179,44 @@ def smartie_reply():
         if bl is not None:
             return jsonify(bl)
 
-        # 2) Otherwise: Smartie coaching
+        # 2) Tracking commands (quick intents)
+        lower = (user_input or "").strip().lower()
+
+        # Mark a check-in as done
+        if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
+            entry = log_done(user_id=user_id)
+            g = get_goal(user_id)
+            if g:
+                return jsonify({"reply": (
+                    "Nice work — logged for today! ✅\n"
+                    f"Goal: “{g.text}” ({g.cadence})\n"
+                    "Say **progress** to see the last 14 days."
+                )})
+            else:
+                return jsonify({"reply": "Logged! If you want this tied to a goal, run **baseline** to set one."})
+
+        # Show progress summary
+        if lower in {"progress", "summary", "stats"}:
+            return jsonify({"reply": tracker_summary(user_id)})
+
+        # Show recent history
+        if lower in {"history", "recent"}:
+            logs = last_n_logs(user_id, 5)
+            if not logs:
+                return jsonify({"reply": "No check-ins yet. Say **done** whenever you complete your goal today."})
+            lines = ["Recent check-ins:"]
+            for e in logs:
+                lines.append(f"• {e.date.isoformat()}" + (f" — {e.note}" if e.note else ""))
+            return jsonify({"reply": "\n".join(lines)})
+
+        # Remind user of their goal
+        if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
+            g = get_goal(user_id)
+            if g:
+                return jsonify({"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."})
+            return jsonify({"reply": "You don’t have an active goal yet. Type **baseline** to set one."})
+        
+        # 3) Otherwise: Smartie coaching
         sd = style_directive(user_input)
         response = client.chat.completions.create(
             model="gpt-4",   # fallback to "gpt-3.5-turbo" if needed
