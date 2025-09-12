@@ -1,6 +1,7 @@
 # baseline_flow.py
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 import datetime as dt
 import re
 
@@ -135,7 +136,7 @@ def normalise_pillar_name(user_text: str) -> Optional[str]:
 # ---------- Prompts ----------
 def why_prompt_first() -> str:
     return lines(
-        "Before we dive in, what’s bringing you here today?",
+        "Before we start, what’s bringing you here today?",
         "Is there a particular health or wellbeing concern on your mind?"
     )
 
@@ -324,11 +325,19 @@ def handle_baseline(user_id: str, text: str):
             "Example: *I will walk 10 minutes after lunch on Mon/Wed/Fri for the next 2 weeks.*"
         )}
 
-    if sess.phase == CHECKINS:
+        if sess.phase == CHECKINS:
         allowed = {"daily","3x/week","weekly","daily.","3x/week.","weekly."}
         tl = t.lower()
         if tl in allowed:
             sess.checkin_cadence = tl.rstrip(".")
+            # SAVE GOAL TO TRACKER
+            tracker_set_goal(
+                user_id=user_id,
+                text=sess.draft_goal,
+                pillar_key=sess.pareto_focus,
+                cadence=sess.checkin_cadence,
+                start=dt.date.today() + dt.timedelta(days=1)
+            )
             sess.phase = CONFIRM
             return {"reply": confirm_prompt(sess)}
         return {"reply": "Please choose **daily**, **3x/week**, or **weekly**."}
