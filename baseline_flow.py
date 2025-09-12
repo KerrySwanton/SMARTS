@@ -19,60 +19,60 @@ LABEL_BY_KEY = {p["key"]: p["label"] for p in PILLARS}
 KEY_BY_LABEL = {p["label"].lower(): p["key"] for p in PILLARS}
 ALL_LABELS_LOWER = [p["label"].lower() for p in PILLARS]
 
-# Brief descriptions shown during scoring
+# One-line descriptions used during scoring
 PILLAR_DESC: Dict[str, str] = {
-    "environment": "Your routines, cues, and physical setup that make healthy choices easier.",
+    "environment": "Your routines, cues, and setup that make healthy choices easier.",
     "nutrition":   "Regular meals/snacks and choices that support energy, mood, and gut health.",
-    "sleep":       "Quantity, quality, and regularity of your sleep and wind-down routine.",
-    "movement":    "Everyday movement and/or exercise that fits your life and supports fitness.",
-    "stress":      "How you recognise stress and use healthy strategies to reduce/cope.",
+    "sleep":       "Quantity, quality, and regularity of sleep + wind-down routine.",
+    "movement":    "Everyday movement/exercise that fits your life and supports your health & wellbeing.",
+    "stress":      "How you recognise stress and use strategies to reduce/cope.",
     "thoughts":    "Mindset and self-talk patterns that shape motivation and resilience.",
-    "emotions":    "Your ability to pause, notice, and regulate emotions (including around food).",
-    "social":      "Support, connection, and belonging in your relationships and community."
+    "emotions":    "Ability to pause, notice, and regulate emotions (incl. around food).",
+    "social":      "Support, connection, and belonging with people/communities.",
 }
 
-# Concrete suggestions per pillar (choose 1 to turn into a SMARTS goal)
+# Concrete suggestions per pillar (user can pick one or write their own)
 PILLAR_SUGGESTIONS: Dict[str, List[str]] = {
     "environment": [
-        "Create a 2-minute ‘start ritual’ (clear desk, fill water, set 25-min timer).",
-        "Place visible cues (fruit bowl, shoes by door, vitamins on breakfast table).",
-        "Night-before prep: lay out gym clothes / pack lunch / schedule tomorrow’s walk."
+        "create a 2-minute start ritual (clear desk, fill water, set a 25-min timer)",
+        "place visible cues (fruit bowl, shoes by door, vitamins on breakfast table)",
+        "do night-before prep (lay out gym clothes, pack lunch, schedule tomorrow’s walk)"
     ],
     "nutrition": [
-        "Anchor 3 meal times (e.g., 8am, 1pm, 7pm) for the next 7 days.",
-        "Add 1 portion of veg to lunch daily this week.",
-        "Carry a planned snack (protein + fiber) for the afternoon dip."
+        "anchor 3 meal times (e.g., 8am, 1pm, 7pm) for the next 7 days",
+        "add 1 portion of vegetables to lunch daily this week",
+        "carry a planned snack (protein + fiber) for the afternoon dip"
     ],
     "sleep": [
-        "No screens + dim lights for 30 minutes before bed.",
-        "Fixed wake-time within ±30 minutes every day for 7 days.",
-        "Caffeine cutoff 8 hours before bedtime."
+        "avoid screens and dim lights for 30 minutes before bed",
+        "keep wake time within ±30 minutes every day for 7 days",
+        "set a caffeine cutoff 8 hours before bedtime"
     ],
     "movement": [
-        "10-minute walk after lunch on Mon/Wed/Fri this week.",
-        "1 ‘movement snack’ (stairs or 20 squats) every afternoon.",
-        "Stretch 5 minutes after dinner, 4x/week."
+        "walk 10 minutes after lunch on Mon/Wed/Fri this week",
+        "do 1 ‘movement snack’ (stairs or 20 squats) every afternoon",
+        "stretch 5 minutes after dinner, 4x/week"
     ],
     "stress": [
-        "2-minute breathing: inhale 4, exhale 6 — once mid-day, daily.",
-        "Evening brain dump: list tomorrow’s top 3 tasks before bed.",
-        "Schedule a 10-minute ‘recovery block’ (walk, stretch, music) on busy days."
+        "practice 2 minutes of 4-in / 6-out breathing mid-day",
+        "do an evening brain dump: list tomorrow’s top 3 before bed",
+        "schedule a 10-minute recovery block (walk, stretch, music) on busy days"
     ],
     "thoughts": [
-        "Daily reframe: write one unhelpful thought → balanced alternative.",
-        "End-of-day ‘one thing that went right’ note.",
-        "Use ‘yet’ language: add ‘…yet’ to any “I can’t” thought."
+        "daily reframe: write one unhelpful thought → a balanced alternative",
+        "end-of-day note: one thing that went right",
+        "use ‘yet’ language: add ‘…yet’ to any “I can’t” thought"
     ],
     "emotions": [
-        "Evening ‘pause before snacking’: water + 3 breaths + choose planned snack.",
-        "Name it to tame it: label one emotion when it shows up.",
-        "Identify two non-food soothers (short walk, shower, stretch) and try one nightly."
+        "evening ‘pause before snacking’: water + 3 breaths + choose a planned snack",
+        "name it to tame it: label one emotion when it shows up",
+        "list two non-food soothers (short walk, shower, stretch) and try one nightly"
     ],
     "social": [
-        "Send one short check-in message today.",
-        "Book a 10-minute call/walk with someone this week.",
-        "Join or re-join one group activity this month (class, club, faith/community)."
-    ]
+        "send one short check-in message today",
+        "book a 10-minute call/walk with someone this week",
+        "join/re-join one group activity this month (class, club, faith/community)"
+    ],
 }
 
 def lowest_two(ratings: Dict[str, int]) -> List[str]:
@@ -88,7 +88,7 @@ def validate_goal(text: str) -> bool:
     return small and has_verb and has_when
 
 # ---------- State machine ----------
-INTRO, RATING, SUMMARY, PARETO, ADVICE, GOAL, CHECKINS, CONFIRM = range(8)
+WHY, INTRO, RATING, SUMMARY, PARETO, ADVICE, GOAL, CHECKINS, CONFIRM = range(9)
 
 @dataclass
 class Session:
@@ -101,6 +101,7 @@ class Session:
     draft_goal: Optional[str] = None
     checkin_cadence: Optional[str] = None
     started_at: Optional[str] = None
+    concern: Optional[str] = None          # NEW: what brings you here today?
 
 SESSIONS: Dict[str, Session] = {}
 
@@ -116,21 +117,35 @@ def reset_session(user_id: str):
 def lines(*xs): return "\n".join(x for x in xs if x)
 
 def normalise_pillar_name(user_text: str) -> Optional[str]:
-    """Match user text to a pillar key using label or key (case-insensitive)."""
+    """Map user text to a pillar key using label or key (case-insensitive, partial ok)."""
     t = (user_text or "").strip().lower()
-    if t in KEY_BY_LABEL.values() or t in [p["key"] for p in PILLARS]:
-        # already a key
-        for p in PILLARS:
-            if t == p["key"]:
-                return p["key"]
-    # try label exact
+    # exact key
+    for p in PILLARS:
+        if t == p["key"]:
+            return p["key"]
+    # exact label
     if t in KEY_BY_LABEL:
         return KEY_BY_LABEL[t]
-    # try contains
+    # partial label
     for lbl in ALL_LABELS_LOWER:
         if lbl in t:
             return KEY_BY_LABEL[lbl]
     return None
+
+# ---------- Prompts ----------
+def why_prompt_first() -> str:
+    return lines(
+        "Before we dive in, what’s bringing you here today?",
+        "Is there a particular health or wellbeing concern on your mind?"
+    )
+
+def why_followup_and_intro() -> str:
+    return lines(
+        "Thanks for sharing — that will help influence which pillars are most important for you.",
+        "Let’s do a quick **baseline** across the 8 pillars so I can personalise your plan.",
+        "You’ll see a one-line description for each pillar. Rate 1–10 (1 = needs support, 10 = thriving).",
+        "Type **start** when you’re ready. Type **cancel** to exit."
+    )
 
 def rating_prompt(sess: Session) -> str:
     p = PILLARS[sess.pillar_index]
@@ -138,13 +153,6 @@ def rating_prompt(sess: Session) -> str:
     return lines(
         f"**{p['label']}** — {desc}",
         "How would you rate this right now? (1–10)"
-    )
-
-def intro_prompt() -> str:
-    return lines(
-        "Let’s do a quick **baseline** across the 8 pillars so I can personalise your plan.",
-        "You’ll see a one-line description for each pillar. Rate 1–10 (1 = needs support, 10 = thriving).",
-        "Type **start** when you’re ready. Type **cancel** to exit."
     )
 
 def summary_prompt(sess: Session) -> str:
@@ -171,13 +179,13 @@ def pareto_prompt(sess: Session) -> str:
 def advice_prompt(pillar_key: str) -> str:
     label = LABEL_BY_KEY[pillar_key]
     tips = PILLAR_SUGGESTIONS[pillar_key]
-    bullets = "\n".join([f"- {t}" for t in tips])
+    bullets = "\n".join([f"{i+1}. {t}" for i, t in enumerate(tips)])
     return lines(
         f"Great — we’ll start with **{label}**.",
         "Here are a few **doable suggestions** (pick one or type your own):",
         bullets,
         "",
-        "Reply with the line number (1/2/3…) or paste your own SMARTS goal."
+        "Reply with the number (1/2/3…) or paste your own SMARTS goal."
     )
 
 def goal_scaffold(sess: Session) -> str:
@@ -216,11 +224,12 @@ def handle_baseline(user_id: str, text: str):
     # Commands to start/reset/cancel
     if t.lower() in {"baseline", "start baseline"}:
         sess = get_session(user_id)
-        sess.phase = INTRO
+        sess.phase = WHY
         sess.pillar_index = 0
         sess.ratings = {}
+        sess.concern = None
         sess.started_at = dt.datetime.now().isoformat()
-        return {"reply": intro_prompt()}
+        return {"reply": why_prompt_first()}
 
     if t.lower() == "reset baseline":
         reset_session(user_id)
@@ -235,12 +244,23 @@ def handle_baseline(user_id: str, text: str):
         return {"reply": "Baseline cancelled. Type **baseline** anytime to restart."}
 
     # Flow
+    if sess.phase == WHY:
+        if sess.concern is None:
+            # First reply from user: capture concern and move to intro
+            sess.concern = t
+            sess.phase = INTRO
+            return {"reply": why_followup_and_intro()}
+        else:
+            # If already captured (rare edge), proceed like INTRO
+            sess.phase = INTRO
+            return {"reply": why_followup_and_intro()}
+
     if sess.phase == INTRO:
         if t.lower() in {"start","yes","y","ok","okay","go"}:
             sess.phase = RATING
             sess.pillar_index = 0
             return {"reply": rating_prompt(sess)}
-        return {"reply": intro_prompt()}
+        return {"reply": why_followup_and_intro()}
 
     if sess.phase == RATING:
         if t.isdigit():
@@ -274,28 +294,24 @@ def handle_baseline(user_id: str, text: str):
         return {"reply": "Please choose one of the two highlighted pillars by name."}
 
     if sess.phase == ADVICE:
-        # Allow picking 1/2/3… or writing own goal
+        # Accept numeric choice or custom SMARTS goal
         if t.strip().isdigit():
             idx = int(t.strip()) - 1
             tips = PILLAR_SUGGESTIONS[sess.pareto_focus]
             if 0 <= idx < len(tips):
-                # Convert suggestion into an "I will ..." scaffold if needed
                 suggestion = tips[idx]
-                # Nudge into SMARTS phrasing
-                sess.draft_goal = f"I will {suggestion[0].lower() + suggestion[1:]} for the next 2 weeks."
+                # Turn suggestion into SMARTS phrasing
+                sess.draft_goal = f"I will {suggestion} for the next 2 weeks."
                 sess.phase = CHECKINS
                 return {"reply": checkin_prompt()}
-            else:
-                return {"reply": "Pick a number from the list or type your own one-sentence goal."}
+            return {"reply": "Pick a number from the list or type your own one-sentence goal."}
         else:
-            # Treat as custom goal text; validate or move to goal scaffold
             if validate_goal(t):
                 sess.draft_goal = t.strip()
                 sess.phase = CHECKINS
                 return {"reply": checkin_prompt()}
-            else:
-                sess.phase = GOAL
-                return {"reply": goal_scaffold(sess)}
+            sess.phase = GOAL
+            return {"reply": goal_scaffold(sess)}
 
     if sess.phase == GOAL:
         if validate_goal(t):
@@ -319,10 +335,11 @@ def handle_baseline(user_id: str, text: str):
 
     if sess.phase == CONFIRM:
         if t.lower() in {"baseline","start baseline"}:
-            sess.phase = INTRO
+            sess.phase = WHY
             sess.pillar_index = 0
             sess.ratings = {}
-            return {"reply": intro_prompt()}
+            sess.concern = None
+            return {"reply": why_prompt_first()}
         return None
 
     return None
