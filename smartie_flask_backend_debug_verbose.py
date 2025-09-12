@@ -3,6 +3,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 import traceback
+import hashlib
+
+# Import the baseline flow handler
+from baseline_flow import handle_baseline
 
 app = Flask(__name__)
 CORS(app)
@@ -38,6 +42,24 @@ Focus areas:
 • The SMARTS framework: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
 • The eity20 principle: 80% consistency, 20% flexibility, 100% human.
 • The Pareto effect: focus on the 20% of actions that drive 80% of outcomes.
+
+The 8 pillars of health and wellbeing:
+1. Environment & Structure
+2. Nutrition & Gut Health
+3. Sleep
+4. Exercise & Movement
+5. Stress Management
+6. Thought Patterns
+7. Emotional Regulation
+8. Social Connection
+
+The SMARTS framework for sustainable change:
+• Sustainable – choose habits you can maintain long-term (not quick fixes).
+• Mindful mindset – be aware and compassionate, aim for progress not perfection.
+• Aligned – set goals that reflect your values and life circumstances.
+• Realistic – keep steps small and doable with current time, energy, and resources.
+• Train your brain – consistency builds habits and rewires behaviour.
+• Speak up – ask for support, share feelings, advocate for your needs.
 
 Response rules:
 1) Replies = 1 warm human line + 2–3 short, concrete steps (bullets or short lines).
@@ -131,6 +153,17 @@ Assistant:
 """
 
 # --------------------------------------------------
+# Helper to derive a stable user_id
+# --------------------------------------------------
+def derive_user_id(req_json, flask_request):
+    # Prefer explicit user_id from frontend; else hash IP + UA as fallback
+    uid = (req_json or {}).get("user_id")
+    if uid:
+        return str(uid)
+    raw = f"{flask_request.remote_addr}|{flask_request.headers.get('User-Agent','')}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+# --------------------------------------------------
 # Smartie Reply Endpoint
 # --------------------------------------------------
 @app.route("/smartie", methods=["POST"])
@@ -138,20 +171,24 @@ def smartie_reply():
     try:
         data = request.get_json() or {}
         user_input = data.get("message", "")
+        user_id = derive_user_id(data, request)
 
-        # Generate a style directive to steer warmth vs. pure action
+        # 1) Run baseline flow first
+        bl = handle_baseline(user_id, user_input)
+        if bl is not None:
+            return jsonify(bl)
+
+        # 2) Otherwise: Smartie coaching
         sd = style_directive(user_input)
-
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4",   # fallback to "gpt-3.5-turbo" if needed
             messages=[
                 {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
                 {"role": "user", "content": f"{sd}\n\nUser: {user_input}"}
             ],
             max_tokens=420,
-            temperature=0.75,  # a touch warmer
+            temperature=0.75,
         )
-
         reply = response.choices[0].message.content.strip()
         return jsonify({"reply": reply})
 
@@ -161,5 +198,4 @@ def smartie_reply():
 
 
 if __name__ == "__main__":
-    # Local run
     app.run(host="0.0.0.0", port=5000)
