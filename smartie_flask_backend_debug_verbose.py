@@ -1,13 +1,15 @@
 import os
+import hashlib
+import traceback
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
-from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
-import traceback
-import hashlib
 
-# Import the baseline flow handler
+# Structured baseline flow (8 pillars → Pareto → SMARTS)
 from baseline_flow import handle_baseline
+
+# Lightweight tracking (in-memory; see tracker.py)
+from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
 app = Flask(__name__)
 CORS(app)
@@ -43,24 +45,6 @@ Focus areas:
 • The SMARTS framework: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
 • The eity20 principle: 80% consistency, 20% flexibility, 100% human.
 • The Pareto effect: focus on the 20% of actions that drive 80% of outcomes.
-
-The 8 pillars of health and wellbeing:
-1. Environment & Structure
-2. Nutrition & Gut Health
-3. Sleep
-4. Exercise & Movement
-5. Stress Management
-6. Thought Patterns
-7. Emotional Regulation
-8. Social Connection
-
-The SMARTS framework for sustainable change:
-• Sustainable – choose habits you can maintain long-term (not quick fixes).
-• Mindful mindset – be aware and compassionate, aim for progress not perfection.
-• Aligned – set goals that reflect your values and life circumstances.
-• Realistic – keep steps small and doable with current time, energy, and resources.
-• Train your brain – consistency builds habits and rewires behaviour.
-• Speak up – ask for support, share feelings, advocate for your needs.
 
 Response rules:
 1) Replies = 1 warm human line + 2–3 short, concrete steps (bullets or short lines).
@@ -174,7 +158,7 @@ def smartie_reply():
         user_input = data.get("message", "")
         user_id = derive_user_id(data, request)
 
-        # 1) Run baseline flow first
+        # 1) Structured baseline flow takes priority
         bl = handle_baseline(user_id, user_input)
         if bl is not None:
             return jsonify(bl)
@@ -184,7 +168,7 @@ def smartie_reply():
 
         # Mark a check-in as done
         if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
-            entry = log_done(user_id=user_id)
+            _ = log_done(user_id=user_id)
             g = get_goal(user_id)
             if g:
                 return jsonify({"reply": (
@@ -206,7 +190,7 @@ def smartie_reply():
                 return jsonify({"reply": "No check-ins yet. Say **done** whenever you complete your goal today."})
             lines = ["Recent check-ins:"]
             for e in logs:
-                lines.append(f"• {e.date.isoformat()}" + (f" — {e.note}" if e.note else ""))
+                lines.append(f"• {e.date.isoformat()}")
             return jsonify({"reply": "\n".join(lines)})
 
         # Remind user of their goal
@@ -215,11 +199,11 @@ def smartie_reply():
             if g:
                 return jsonify({"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."})
             return jsonify({"reply": "You don’t have an active goal yet. Type **baseline** to set one."})
-        
-        # 3) Otherwise: Smartie coaching
+
+        # 3) Otherwise: Smartie coaching via OpenAI
         sd = style_directive(user_input)
         response = client.chat.completions.create(
-            model="gpt-4",   # fallback to "gpt-3.5-turbo" if needed
+            model="gpt-4",   # fallback to "gpt-3.5-turbo" if your account requires
             messages=[
                 {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
                 {"role": "user", "content": f"{sd}\n\nUser: {user_input}"}
@@ -236,4 +220,5 @@ def smartie_reply():
 
 
 if __name__ == "__main__":
+    # Local run
     app.run(host="0.0.0.0", port=5000)
