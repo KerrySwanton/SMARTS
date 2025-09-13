@@ -1,9 +1,11 @@
 # baseline_flow.py
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 import datetime as dt
 import re
+
+# tracker integration (saves goal once cadence is chosen)
+from tracker import set_goal as tracker_set_goal
 
 # ---------- Domain ----------
 PILLARS = [
@@ -25,7 +27,7 @@ PILLAR_DESC: Dict[str, str] = {
     "environment": "Your routines, cues, and setup that make healthy choices easier.",
     "nutrition":   "Regular meals/snacks and choices that support energy, mood, and gut health.",
     "sleep":       "Quantity, quality, and regularity of sleep + wind-down routine.",
-    "movement":    "Everyday movement/exercise that fits your life and supports your health & wellbeing.",
+    "movement":    "Everyday movement/exercise that fits your life and supports fitness.",
     "stress":      "How you recognise stress and use strategies to reduce/cope.",
     "thoughts":    "Mindset and self-talk patterns that shape motivation and resilience.",
     "emotions":    "Ability to pause, notice, and regulate emotions (incl. around food).",
@@ -102,7 +104,7 @@ class Session:
     draft_goal: Optional[str] = None
     checkin_cadence: Optional[str] = None
     started_at: Optional[str] = None
-    concern: Optional[str] = None          # NEW: what brings you here today?
+    concern: Optional[str] = None
 
 SESSIONS: Dict[str, Session] = {}
 
@@ -136,7 +138,7 @@ def normalise_pillar_name(user_text: str) -> Optional[str]:
 # ---------- Prompts ----------
 def why_prompt_first() -> str:
     return lines(
-        "Before we start, what’s bringing you here today?",
+        "Before we dive in, what’s bringing you here today?",
         "Is there a particular health or wellbeing concern on your mind?"
     )
 
@@ -222,7 +224,7 @@ def handle_baseline(user_id: str, text: str):
     """
     t = (text or "").strip()
 
-    # Commands to start/reset/cancel
+    # Start/reset/cancel
     if t.lower() in {"baseline", "start baseline"}:
         sess = get_session(user_id)
         sess.phase = WHY
@@ -244,18 +246,17 @@ def handle_baseline(user_id: str, text: str):
         reset_session(user_id)
         return {"reply": "Baseline cancelled. Type **baseline** anytime to restart."}
 
-    # Flow
+    # WHY
     if sess.phase == WHY:
         if sess.concern is None:
-            # First reply from user: capture concern and move to intro
             sess.concern = t
             sess.phase = INTRO
             return {"reply": why_followup_and_intro()}
         else:
-            # If already captured (rare edge), proceed like INTRO
             sess.phase = INTRO
             return {"reply": why_followup_and_intro()}
 
+    # INTRO
     if sess.phase == INTRO:
         if t.lower() in {"start","yes","y","ok","okay","go"}:
             sess.phase = RATING
@@ -263,6 +264,7 @@ def handle_baseline(user_id: str, text: str):
             return {"reply": rating_prompt(sess)}
         return {"reply": why_followup_and_intro()}
 
+    # RATING
     if sess.phase == RATING:
         if t.isdigit():
             score = clamp(int(t))
@@ -275,6 +277,7 @@ def handle_baseline(user_id: str, text: str):
             return {"reply": summary_prompt(sess)}
         return {"reply": "Please reply with a number from **1** to **10**."}
 
+    # SUMMARY
     if sess.phase == SUMMARY:
         if t.lower() == "both":
             sess.phase = PARETO
@@ -286,6 +289,7 @@ def handle_baseline(user_id: str, text: str):
             return {"reply": advice_prompt(sess.pareto_focus)}
         return {"reply": "Please type the pillar you want to **focus** on, or type **both**."}
 
+    # PARETO
     if sess.phase == PARETO:
         chosen = normalise_pillar_name(t)
         if chosen and chosen in sess.lowest:
@@ -294,6 +298,7 @@ def handle_baseline(user_id: str, text: str):
             return {"reply": advice_prompt(sess.pareto_focus)}
         return {"reply": "Please choose one of the two highlighted pillars by name."}
 
+    # ADVICE
     if sess.phase == ADVICE:
         # Accept numeric choice or custom SMARTS goal
         if t.strip().isdigit():
@@ -301,7 +306,7 @@ def handle_baseline(user_id: str, text: str):
             tips = PILLAR_SUGGESTIONS[sess.pareto_focus]
             if 0 <= idx < len(tips):
                 suggestion = tips[idx]
-                # Turn suggestion into SMARTS phrasing
+                # Nudge into SMARTS phrasing
                 sess.draft_goal = f"I will {suggestion} for the next 2 weeks."
                 sess.phase = CHECKINS
                 return {"reply": checkin_prompt()}
@@ -314,6 +319,7 @@ def handle_baseline(user_id: str, text: str):
             sess.phase = GOAL
             return {"reply": goal_scaffold(sess)}
 
+    # GOAL
     if sess.phase == GOAL:
         if validate_goal(t):
             sess.draft_goal = t.strip()
@@ -325,7 +331,8 @@ def handle_baseline(user_id: str, text: str):
             "Example: *I will walk 10 minutes after lunch on Mon/Wed/Fri for the next 2 weeks.*"
         )}
 
-        if sess.phase == CHECKINS:
+    # CHECKINS (saves goal to tracker)
+    if sess.phase == CHECKINS:
         allowed = {"daily","3x/week","weekly","daily.","3x/week.","weekly."}
         tl = t.lower()
         if tl in allowed:
@@ -342,6 +349,7 @@ def handle_baseline(user_id: str, text: str):
             return {"reply": confirm_prompt(sess)}
         return {"reply": "Please choose **daily**, **3x/week**, or **weekly**."}
 
+    # CONFIRM
     if sess.phase == CONFIRM:
         if t.lower() in {"baseline","start baseline"}:
             sess.phase = WHY
