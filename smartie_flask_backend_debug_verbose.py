@@ -208,7 +208,7 @@ def route_message(user_id: str, text: str):
 
     # ---- 4) OpenAI fallback (short, warm, actionable) ----
     sd = style_directive(text)
-    response = client.chat_completions.create(  # if using new SDK use client.chat.completions.create
+    response = client.chat.completions.create(  # if using new SDK use client.chat.completions.create
         model="gpt-4",
         messages=[
             {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
