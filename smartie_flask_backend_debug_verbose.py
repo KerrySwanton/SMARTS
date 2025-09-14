@@ -4,6 +4,7 @@ import traceback
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
+from twilio.rest import Client
 
 # 1) Structured baseline flow (8 pillars → Pareto → SMARTS)
 from baseline_flow import handle_baseline
@@ -21,6 +22,26 @@ def route_message(user_id: str, text: str):
     # (If you want, I can paste this function wired to your current code.)
     ...
 
+app = Flask(__name__)
+CORS(app)
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# Twilio WhatsApp setup
+account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+wa_number = os.getenv("TWILIO_WHATSAPP_NUMBER")
+
+twilio_client = Client(account_sid, auth_token)
+
+def send_wa(to, body):
+    """Send a WhatsApp message via Twilio."""
+    return twilio_client.messages.create(
+        from_=f"whatsapp:{wa_number}",
+        to=f"whatsapp:{to}",
+        body=body
+    )
+
 @app.route("/wa/webhook", methods=["POST"])
 def wa_webhook():
     from_num = request.form.get("From", "").replace("whatsapp:", "")
@@ -29,11 +50,6 @@ def wa_webhook():
     result = route_message(user_id, body)
     send_wa(from_num, result["reply"])
     return ("", 204)
-
-app = Flask(__name__)
-CORS(app)
-
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # --------------------------------------------------
 # YOUR VOICE: small advice library + intent router
