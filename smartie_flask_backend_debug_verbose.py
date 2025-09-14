@@ -13,7 +13,6 @@ from baseline_flow import handle_baseline
 from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
 # in smartie_flask_backend_debug_verbose.py
-from whatsapp import send_wa  # tiny helper using Twilio REST API
 
 def route_message(user_id: str, text: str):
     # reuse the exact routing you use in /smartie:
@@ -30,8 +29,6 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 # ---------------------------
 # Twilio WhatsApp setup
 # ---------------------------
-import os
-from twilio.rest import Client
 
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN")
