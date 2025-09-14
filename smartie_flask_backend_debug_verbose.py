@@ -11,6 +11,25 @@ from baseline_flow import handle_baseline
 # 2) Lightweight tracking (in-memory; see tracker.py)
 from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
+# in smartie_flask_backend_debug_verbose.py
+from whatsapp import send_wa  # tiny helper using Twilio REST API
+
+def route_message(user_id: str, text: str):
+    # reuse the exact routing you use in /smartie:
+    # 1) tracking → 2) baseline → 3) your-voice advice → 4) OpenAI fallback
+    # return {"reply": "..."}
+    # (If you want, I can paste this function wired to your current code.)
+    ...
+
+@app.route("/wa/webhook", methods=["POST"])
+def wa_webhook():
+    from_num = request.form.get("From", "").replace("whatsapp:", "")
+    body = (request.form.get("Body") or "").strip()
+    user_id = f"wa:{from_num}"           # simple mapping; persist later in DB
+    result = route_message(user_id, body)
+    send_wa(from_num, result["reply"])
+    return ("", 204)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -106,6 +125,86 @@ def your_voice_reply(pillar: str, user_text: str) -> str:
     footer = "(Pillar: " + label + "; aim for 80% consistency, 20% flexibility, 100% human.)"
     return f"{warm}\n{bullets}\n{footer}"
 
+# ==================================================
+# Unified router + WhatsApp webhook
+# ==================================================
+
+def route_message(user_id: str, text: str):
+    """
+    Unified Smartie brain for BOTH web and WhatsApp.
+    Order: 1) Tracking → 2) Baseline → 3) Your-voice coaching → 4) AI fallback
+    Returns: {"reply": "..."}
+    """
+    lower = (text or "").strip().lower()
+
+    # ---- 1) Tracking intents ----
+    if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
+        _ = log_done(user_id=user_id)
+        g = get_goal(user_id)
+        if g:
+            return {"reply": (
+                "Nice work — logged for today! ✅\n"
+                f"Goal: “{g.text}” ({g.cadence})\n"
+                "Say **progress** to see the last 14 days."
+            )}
+        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one."}
+
+    if lower in {"progress", "summary", "stats"}:
+        return {"reply": tracker_summary(user_id)}
+
+    if lower in {"history", "recent"}:
+        logs = last_n_logs(user_id, 5)
+        if not logs:
+            return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today."}
+        lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
+        return {"reply": "\n".join(lines)}
+
+    if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
+        g = get_goal(user_id)
+        if g:
+            return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."}
+        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one."}
+
+    # ---- 2) Baseline flow (8 pillars → Pareto → SMARTS) ----
+    bl = handle_baseline(user_id, text)
+    if bl is not None:
+        return bl
+
+    # ---- 3) Your-voice coaching (intent → pillar → tips) ----
+    pillar = map_intent_to_pillar(text)
+    if pillar:
+        return {"reply": your_voice_reply(pillar, text)}
+
+    # ---- 4) OpenAI fallback (short, warm, actionable) ----
+    sd = style_directive(text)
+    response = client.chat_completions.create(  # if using new SDK use client.chat.completions.create
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
+            {"role": "user", "content": f"{sd}\n\nUser: {text}"},
+        ],
+        max_tokens=420,
+        temperature=0.75,
+    )
+    return {"reply": response.choices[0].message.content.strip()}
+
+
+@app.route("/wa/webhook", methods=["POST"])
+def wa_webhook():
+    """
+    Twilio WhatsApp webhook.
+    Point Twilio 'When a message comes in' to:
+    POST https://https://smartie-vl99.onrender.com/wa/webhook
+    """
+    from_num = request.form.get("From", "").replace("whatsapp:", "")
+    body     = (request.form.get("Body") or "").strip()
+    user_id  = f"wa:{from_num}"
+
+    result = route_message(user_id, body)
+    # Send reply back to the same WhatsApp number
+    send_wa(from_num, result["reply"])
+    return ("", 204)
+
 # --------------------------------------------------
 # Tone dial for the OpenAI fallback
 # --------------------------------------------------
@@ -162,9 +261,9 @@ Response rules:
 5) Progress over perfection (80/20). No medical diagnosis.
 """
 
-# --------------------------------------------------
+# -----------------------------------------------------
 # Helper to derive a stable user_id
-# --------------------------------------------------
+# -----------------------------------------------------
 def derive_user_id(req_json, flask_request):
     uid = (req_json or {}).get("user_id")
     if uid:
@@ -172,73 +271,22 @@ def derive_user_id(req_json, flask_request):
     raw = f"{flask_request.remote_addr}|{flask_request.headers.get('User-Agent','')}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-# --------------------------------------------------
-# Smartie Reply Endpoint
-# --------------------------------------------------
+# -----------------------------------------------------
+# Smartie Reply Endpoint (web clients)
+# -----------------------------------------------------
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
     try:
         data = request.get_json() or {}
         user_input = data.get("message", "")
-        user_id = derive_user_id(data, request)
-        lower = (user_input or "").strip().lower()
-
-        # 1) TRACKING (your logic) — runs before anything else
-        if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
-            _ = log_done(user_id=user_id)
-            g = get_goal(user_id)
-            if g:
-                return jsonify({"reply": (
-                    "Nice work — logged for today! ✅\n"
-                    f"Goal: “{g.text}” ({g.cadence})\n"
-                    "Say **progress** to see the last 14 days."
-                )})
-            return jsonify({"reply": "Logged! If you want this tied to a goal, run **baseline** to set one."})
-
-        if lower in {"progress", "summary", "stats"}:
-            return jsonify({"reply": tracker_summary(user_id)})
-
-        if lower in {"history", "recent"}:
-            logs = last_n_logs(user_id, 5)
-            if not logs:
-                return jsonify({"reply": "No check-ins yet. Say **done** whenever you complete your goal today."})
-            lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
-            return jsonify({"reply": "\n".join(lines)})
-
-        if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
-            g = get_goal(user_id)
-            if g:
-                return jsonify({"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."})
-            return jsonify({"reply": "You don’t have an active goal yet. Type **baseline** to set one."})
-
-        # 2) BASELINE FLOW (your logic)
-        bl = handle_baseline(user_id, user_input)
-        if bl is not None:
-            return jsonify(bl)
-
-        # 3) YOUR VOICE COACHING (rule-based) — maps intent to a pillar and replies
-        pillar = map_intent_to_pillar(user_input)
-        if pillar:
-            return jsonify({"reply": your_voice_reply(pillar, user_input)})
-
-        # 4) AI FALLBACK (OpenAI) — only if nothing above handled it
-        sd = style_directive(user_input)
-        response = client.chat.completions.create(
-            model="gpt-4",   # change to "gpt-3.5-turbo" if needed
-            messages=[
-                {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
-                {"role": "user", "content": f"{sd}\n\nUser: {user_input}"}
-            ],
-            max_tokens=420,
-            temperature=0.75,
-        )
-        reply = response.choices[0].message.content.strip()
-        return jsonify({"reply": reply})
-
-    except Exception as e:
+        user_id = derive_user_id(data, request)   # stable per user/device
+        return jsonify(route_message(user_id, user_input))
+    except Exception:
         traceback.print_exc()
         return jsonify({"reply": "Oops—something went wrong. Try again in a moment."}), 500
 
-
+# -----------------------------------------------------
+# Run app
+# -----------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
