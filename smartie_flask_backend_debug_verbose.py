@@ -27,27 +27,45 @@ CORS(app)
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# ---------------------------
 # Twilio WhatsApp setup
-account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-wa_number = os.getenv("TWILIO_WHATSAPP_NUMBER")
+# ---------------------------
+import os
+from twilio.rest import Client
 
-twilio_client = Client(account_sid, auth_token)
+ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN")
+WA_NUMBER   = os.getenv("TWILIO_WHATSAPP_NUMBER")   # e.g. "whatsapp:+14155238886"
 
-def send_wa(to, body):
-    """Send a WhatsApp message via Twilio."""
+twilio_client = Client(ACCOUNT_SID, AUTH_TOKEN)
+
+def send_wa(to_e164: str, body: str):
+    """
+    Send a WhatsApp message via Twilio.
+    to_e164: recipient in E.164 without the 'whatsapp:' prefix (e.g., '+447700900123')
+    """
     return twilio_client.messages.create(
-        from_=f"whatsapp:{wa_number}",
-        to=f"whatsapp:{to}",
+        from_=WA_NUMBER,                 # use env var as-is (already includes 'whatsapp:')
+        to=f"whatsapp:{to_e164}",        # prefix only the recipient number
         body=body
     )
 
+# ---------------------------
+# WhatsApp inbound webhook
+# ---------------------------
+from flask import request
+
 @app.route("/wa/webhook", methods=["POST"])
 def wa_webhook():
+    # Twilio posts form-encoded data
     from_num = request.form.get("From", "").replace("whatsapp:", "")
-    body = (request.form.get("Body") or "").strip()
-    user_id = f"wa:{from_num}"           # simple mapping; persist later in DB
-    result = route_message(user_id, body)
+    body     = (request.form.get("Body") or "").strip()
+
+    # Reuse the same Smartie brain for WA as web
+    user_id  = f"wa:{from_num}"
+    result   = route_message(user_id, body)
+
+    # Reply via WhatsApp
     send_wa(from_num, result["reply"])
     return ("", 204)
 
