@@ -219,23 +219,6 @@ def route_message(user_id: str, text: str):
     )
     return {"reply": response.choices[0].message.content.strip()}
 
-
-@app.route("/wa/webhook", methods=["POST"])
-def wa_webhook():
-    """
-    Twilio WhatsApp webhook.
-    Point Twilio 'When a message comes in' to:
-    POST https://https://smartie-vl99.onrender.com/wa/webhook
-    """
-    from_num = request.form.get("From", "").replace("whatsapp:", "")
-    body     = (request.form.get("Body") or "").strip()
-    user_id  = f"wa:{from_num}"
-
-    result = route_message(user_id, body)
-    # Send reply back to the same WhatsApp number
-    send_wa(from_num, result["reply"])
-    return ("", 204)
-
 # --------------------------------------------------
 # Tone dial for the OpenAI fallback
 # --------------------------------------------------
