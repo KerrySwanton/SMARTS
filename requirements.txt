@@ -1,3 +1,4 @@
 flask
 flask_cors
 openai>=1.0
+twilio
