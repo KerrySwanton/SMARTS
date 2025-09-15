@@ -41,20 +41,79 @@ def safety_check_and_reply(text: str) -> str | None:
         )
     return None
 
-# 2) Concern → suggested pillars (starter matrix)
-CONCERN_TO_PILLARS: dict[str, list[str]] = {
-    "blood pressure": ["nutrition", "movement", "stress", "sleep"],
-    "hypertension":   ["nutrition", "movement", "stress", "sleep"],
-    "low mood":       ["sleep", "movement", "thoughts", "social"],
-    "depression":     ["sleep", "movement", "thoughts", "social"],
-    "anxiety":        ["stress", "thoughts", "sleep", "emotions"],
-    "ibs":            ["nutrition", "stress", "sleep", "emotions"],
-    "gut":            ["nutrition", "stress", "sleep"],
-    "weight":         ["nutrition", "movement", "thoughts", "environment"],
-    "sleep":          ["sleep", "stress", "environment"],
-    "insomnia":       ["sleep", "stress", "environment"],
-    "lonely":         ["social", "movement", "thoughts"],
-    "isolation":      ["social", "movement", "thoughts"],
+# 2) Concern → suggested pillars (extended matrix)
+CONCERN_TO_PILLARS = {
+    # --- Physical Health ---
+    "cholesterol": ["nutrition","movement","environment"],
+    "overweight": ["nutrition","movement","thoughts","stress"],
+    "obese": ["nutrition","movement","thoughts","stress"],
+    "glp-1": ["nutrition","movement","thoughts"],
+    "blood sugar": ["nutrition","movement","sleep","stress"],
+    "type 2 diabetes": ["nutrition","movement","sleep","stress"],
+    "pre-diabetes": ["nutrition","movement","sleep","stress"],
+    "menopause": ["sleep","stress","emotions","social"],
+    "hypertension": ["nutrition","movement","stress","sleep"],
+    "blood pressure": ["nutrition","movement","stress","sleep"],
+    "osteoarthritis": ["movement","stress","environment"],
+    "joint pain": ["movement","stress","environment"],
+    "coronary heart disease": ["movement","nutrition","stress"],
+    "atrial fibrillation": ["stress","sleep","nutrition"],
+    "copd": ["breathing","movement","stress","sleep"],
+    "asthma": ["breathing","stress","environment"],
+    "sleep apnoea": ["sleep","weight","stress"],
+    "liver disease": ["nutrition","environment","stress"],
+    "fatty liver": ["nutrition","movement","environment"],
+    "kidney disease": ["nutrition","stress","movement"],
+    "bone health": ["movement","nutrition","environment"],
+    "osteoporosis": ["movement","nutrition","environment"],
+    "osteopenia": ["movement","nutrition","environment"],
+    "metabolic syndrome": ["nutrition","movement","stress","sleep"],
+    "autoimmune disorder": ["stress","emotions","nutrition","sleep"],
+    "rheumatoid arthritis": ["movement","stress","emotions"],
+    "psoriasis": ["stress","emotions","social"],
+    "multiple sclerosis": ["movement","emotions","social"],
+
+    # --- Mental Health (ICD-11 categories) ---
+    "low mood": ["sleep","movement","thoughts","social"],
+    "depression": ["sleep","movement","thoughts","social"],
+    "bipolar": ["sleep","stress","emotions","social"],
+    "sad": ["sleep","thoughts","movement","social"],   # Seasonal Affective Disorder
+    "anxiety": ["stress","thoughts","sleep","emotions"],
+    "gad": ["stress","thoughts","sleep","emotions"],   # Generalised Anxiety Disorder
+    "ptsd": ["stress","emotions","social"],
+    "stress": ["stress","thoughts","emotions"],
+    "emotional dysregulation": ["emotions","thoughts","social"],
+    "binge eating": ["nutrition","emotions","thoughts"],
+    "adhd": ["environment","structure","movement","thoughts"],
+    "asd": ["social","environment","thoughts"],
+    "gaming": ["environment","thoughts","movement"],
+    "addiction": ["emotions","thoughts","social"],
+    "insomnia": ["sleep","stress","environment"],
+    "sleep disorder": ["sleep","stress","environment"],
+    "cognitive decline": ["thoughts","social","movement"],
+    "mild neurocognitive disorder": ["thoughts","movement","social"],
+    "dementia": ["thoughts","social","environment"],
+    "alzheimer": ["thoughts","social","movement"],
+
+    # --- Gut Health ---
+    "bloating": ["nutrition","gut","stress"],
+    "constipation": ["nutrition","gut","movement"],
+    "diarrhoea": ["nutrition","gut","stress"],
+    "functional gi": ["nutrition","gut","stress","emotions"],
+    "ibs": ["nutrition","stress","sleep","emotions"],
+    "leaky gut": ["nutrition","gut","emotions"],
+    "food allergy": ["nutrition","environment"],
+    "food intolerance": ["nutrition","environment"],
+    "gluten": ["nutrition","gut"],
+    "dairy": ["nutrition","gut"],
+    "wheat": ["nutrition","gut"],
+    "histamine": ["nutrition","gut"],
+    "gerd": ["nutrition","sleep","environment"],
+    "acid reflux": ["nutrition","sleep","environment"],
+    "crohn": ["nutrition","stress","emotions"],
+    "ulcerative colitis": ["nutrition","stress","emotions"],
+    "coeliac": ["nutrition","gut","emotions"],
+    "autoimmune gastritis": ["nutrition","stress","gut"],
 }
 
 def suggest_pillars_for_concern(text: str) -> list[str]:
