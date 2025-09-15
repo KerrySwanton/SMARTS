@@ -1,3 +1,5 @@
+# smartie_flask_backend_debug_verbose.py
+
 import os
 import hashlib
 import traceback
@@ -5,33 +7,231 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from twilio.rest import Client
+
+# Playbook (single source of truth for tone + advice)
 from smartie_playbook import compose_reply, PILLARS, EITY20_TAGLINE
-PENDING_GOALS: dict[str, dict] = {}
 
-# 1) Structured baseline flow (8 pillars → Pareto → SMARTS)
+# Baseline + tracking
 from baseline_flow import handle_baseline
-
-# 2) Lightweight tracking (in-memory; see tracker.py)
 from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
-# in smartie_flask_backend_debug_verbose.py
 
-def route_message(user_id: str, text: str):
-    # reuse the exact routing you use in /smartie:
-    # 1) tracking → 2) baseline → 3) your-voice advice → 4) OpenAI fallback
-    # return {"reply": "..."}
-    # (If you want, I can paste this function wired to your current code.)
-    ...
+# ==================================================
+# Safety-first + concern mapping + intent helpers
+# ==================================================
 
+# 1) Red-flag terms → safety script
+SAFETY_TERMS = {
+    # mental health crisis
+    "suicide", "suicidal", "self harm", "self-harm", "kill myself", "end it", "i want to die",
+    # acute physical
+    "chest pain", "severe chest pain", "struggling to breathe", "can’t breathe", "cant breathe",
+    "fainted", "passing out", "severe bleeding", "stroke", "numb face", "numb arm",
+}
+
+def safety_check_and_reply(text: str) -> str | None:
+    t = (text or "").lower()
+    if any(term in t for term in SAFETY_TERMS):
+        return (
+            "I’m concerned about your safety. If you’re in immediate danger, call emergency services now "
+            "(999 UK / 112 EU / 911 US).\n\n"
+            "• Mental health crisis (UK): Samaritans 116 123 or text SHOUT to 85258.\n"
+            "• Severe physical symptoms: please seek urgent medical care.\n\n"
+            "Smartie supports lifestyle change, but crises need urgent human help."
+        )
+    return None
+
+# 2) Concern → suggested pillars (starter matrix)
+CONCERN_TO_PILLARS: dict[str, list[str]] = {
+    "blood pressure": ["nutrition", "movement", "stress", "sleep"],
+    "hypertension":   ["nutrition", "movement", "stress", "sleep"],
+    "low mood":       ["sleep", "movement", "thoughts", "social"],
+    "depression":     ["sleep", "movement", "thoughts", "social"],
+    "anxiety":        ["stress", "thoughts", "sleep", "emotions"],
+    "ibs":            ["nutrition", "stress", "sleep", "emotions"],
+    "gut":            ["nutrition", "stress", "sleep"],
+    "weight":         ["nutrition", "movement", "thoughts", "environment"],
+    "sleep":          ["sleep", "stress", "environment"],
+    "insomnia":       ["sleep", "stress", "environment"],
+    "lonely":         ["social", "movement", "thoughts"],
+    "isolation":      ["social", "movement", "thoughts"],
+}
+
+def suggest_pillars_for_concern(text: str) -> list[str]:
+    t = (text or "").lower()
+    hits: list[str] = []
+    for k, pillars in CONCERN_TO_PILLARS.items():
+        if k in t:
+            for p in pillars:
+                if p not in hits:
+                    hits.append(p)
+    return hits
+
+# 3) Intent keywords → pillar (fast routing to your playbook)
+INTENT_KEYWORDS = [
+    ({"stress", "stressed", "anxious", "anxiety", "tense", "overwhelmed"}, "stress"),
+    ({"sleep", "insomnia", "tired", "can't sleep", "cant sleep", "awake"}, "sleep"),
+    ({"snack", "snacking", "nutrition", "diet", "food", "eat", "eating", "gut", "ibs"}, "nutrition"),
+    ({"exercise", "move", "movement", "workout", "walk", "steps"}, "movement"),
+    ({"focus", "clutter", "organise", "organize", "routine", "structure", "environment"}, "environment"),
+    ({"negative thoughts", "self talk", "self-talk", "mindset", "thoughts", "motivation"}, "thoughts"),
+    ({"emotions", "emotional", "urge", "craving", "binge", "comfort eat", "comfort-eat"}, "emotions"),
+    ({"lonely", "isolated", "connection", "friends", "social"}, "social"),
+]
+
+def map_intent_to_pillar(text: str) -> str | None:
+    t = (text or "").lower()
+    for words, pillar in INTENT_KEYWORDS:
+        if any(w in t for w in words):
+            return pillar
+    # fallback to concern mapping
+    sp = suggest_pillars_for_concern(t)
+    return sp[0] if sp else None
+
+# 4) Tone nudger for the OpenAI fallback
+def style_directive(user_text: str) -> str:
+    t = (user_text or "").lower()
+    distress = any(w in t for w in [
+        "overwhelmed", "stressed", "anxious", "worried", "exhausted",
+        "burned out", "failed", "guilty", "ashamed", "stuck", "struggle"
+    ])
+    celebrate = any(w in t for w in [
+        "win", "progress", "did it", "managed", "proud", "streak", "improved", "better", "nailed it", "success"
+    ])
+    if distress:
+        return "STYLE=Warm, encouraging first line. Then 2–3 concrete, doable steps."
+    if celebrate:
+        return "STYLE=Enthusiastic first line. Then one small step-up."
+    return "STYLE=Friendly first line. Then 2–3 practical steps."
+
+# 5) System prompt for the fallback
+SMARTIE_SYSTEM_PROMPT = """
+You are Smartie, the eity20 coach. Give short, friendly, encouraging coaching with practical next steps.
+
+Focus areas:
+• The 8 pillars: Environment & Structure, Nutrition & Gut Health, Sleep, Exercise & Movement, Stress Management, Thought Patterns, Emotional Regulation, Social Connection.
+• The SMARTS framework: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
+• The eity20 principle: 80% consistency, 20% flexibility, 100% human.
+• The Pareto effect: focus on the 20% of actions that drive 80% of outcomes.
+
+Response rules:
+1) Replies = 1 warm human line + 2–3 short, concrete steps.
+2) Be specific and doable (time, trigger, frequency). Avoid long lectures.
+3) Validate distress; celebrate wins.
+4) Mention the relevant pillar or SMARTS principle once.
+5) Progress over perfection (80/20). No medical diagnosis.
+"""
+
+# ==================================================
+# Unified router
+# ==================================================
+def route_message(user_id: str, text: str) -> dict:
+    lower = (text or "").strip().lower()
+    tag = f"\n{EITY20_TAGLINE}" if 'EITY20_TAGLINE' in globals() else ""
+
+    # --- 1) Safety first ---
+    s = safety_check_and_reply(text)
+    if s:
+        return {"reply": s}
+
+    # --- 2) Quick commands: tracking ---
+    if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
+        _ = log_done(user_id=user_id)
+        g = get_goal(user_id)
+        if g:
+            return {"reply": (
+                "Nice work — logged for today! ✅\n"
+                f"Goal: “{g.text}” ({g.cadence})\n"
+                "Say **progress** to see the last 14 days."
+            ) + tag}
+        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
+
+    if lower in {"progress", "summary", "stats"}:
+        return {"reply": tracker_summary(user_id) + tag}
+
+    if lower in {"history", "recent"}:
+        logs = last_n_logs(user_id, 5)
+        if not logs:
+            return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today." + tag}
+        lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
+        return {"reply": "\n".join(lines) + tag}
+
+    if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
+        g = get_goal(user_id)
+        if g:
+            return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
+        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
+
+    # --- 3) Onboarding / Baseline / SMARTS goal ---
+    if lower in {"start", "get started", "baseline", "onboard", "begin"}:
+        bl = handle_baseline(user_id, text)   # asks concern → 8 ratings → suggest pillar → set goal
+        if bl is not None:
+            return bl
+
+    # Continue baseline if already mid-flow
+    bl = handle_baseline(user_id, text)
+    if bl is not None:
+        return bl
+
+    # --- 4) Pillar advice (direct keywords → playbook) ---
+    if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
+        return {"reply": compose_reply("environment", text)}
+    if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
+        return {"reply": compose_reply("nutrition", text)}
+    if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
+        return {"reply": compose_reply("sleep", text)}
+    if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
+        return {"reply": compose_reply("movement", text)}
+    if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
+        return {"reply": compose_reply("stress", text)}
+    if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
+        return {"reply": compose_reply("thoughts", text)}
+    if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
+        return {"reply": compose_reply("emotions", text)}
+    if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
+        return {"reply": compose_reply("social", text)}
+
+    # --- 5) Intent/concern mapper → pillar → playbook (support mode) ---
+    pillar = map_intent_to_pillar(text)
+    if pillar:
+        return {"reply": compose_reply(pillar, text)}
+
+    # If user stated a clear concern, suggest pillars explicitly
+    pillars = suggest_pillars_for_concern(text)
+    if pillars:
+        labels = [PILLARS[p]["label"] for p in pillars if p in PILLARS]
+        suggestion = ", ".join(labels[:3]) or ", ".join(pillars[:3])
+        return {"reply": (
+            f"Thanks — that helps focus the right areas. These pillars usually help most: {suggestion}.\n"
+            f"Want to do a 1-minute baseline and pick one to start?\n{EITY20_TAGLINE}"
+        )}
+
+    # --- 6) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
+    sd = style_directive(text)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",   # keep in sync with what works on your account
+        messages=[
+            {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
+            {"role": "user", "content": f"{sd}\n\nUser: {text}"},
+        ],
+        max_tokens=420,
+        temperature=0.75,
+    )
+    return {"reply": response.choices[0].message.content.strip() + tag}
+
+
+# ==================================================
+# Flask app + OpenAI client
+# ==================================================
 app = Flask(__name__)
 CORS(app)
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# ---------------------------
-# Twilio WhatsApp setup
-# ---------------------------
 
+# ==================================================
+# Twilio WhatsApp setup
+# ==================================================
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN")
 WA_NUMBER   = os.getenv("TWILIO_WHATSAPP_NUMBER")   # e.g. "whatsapp:+14155238886"
@@ -44,23 +244,19 @@ def send_wa(to_e164: str, body: str):
     to_e164: recipient in E.164 without the 'whatsapp:' prefix (e.g., '+447700900123')
     """
     return twilio_client.messages.create(
-        from_=WA_NUMBER,                 # use env var as-is (already includes 'whatsapp:')
+        from_=WA_NUMBER,                 # env var already includes 'whatsapp:'
         to=f"whatsapp:{to_e164}",        # prefix only the recipient number
         body=body
     )
 
-# ---------------------------
 # WhatsApp inbound webhook
-# ---------------------------
-from flask import request
-
 @app.route("/wa/webhook", methods=["POST"])
 def wa_webhook():
     # Twilio posts form-encoded data
     from_num = request.form.get("From", "").replace("whatsapp:", "")
     body     = (request.form.get("Body") or "").strip()
 
-    # Reuse the same Smartie brain for WA as web
+    # Reuse the same Smartie brain
     user_id  = f"wa:{from_num}"
     result   = route_message(user_id, body)
 
@@ -68,278 +264,10 @@ def wa_webhook():
     send_wa(from_num, result["reply"])
     return ("", 204)
 
-# --------------------------------------------------
-# YOUR VOICE: small advice library + intent router
-# --------------------------------------------------
-
-PILLAR_TIPS = {
-    "environment": [
-        "Create a 2-minute start ritual (clear desk, fill water, set a 25-min timer).",
-        "Place visible cues (fruit bowl, shoes by door, vitamins on breakfast table).",
-        "Night-before prep (lay out gym clothes, pack lunch, schedule tomorrow’s walk).",
-    ],
-    "nutrition": [
-        "Anchor 3 meal times (e.g., 8am, 1pm, 7pm) for the next 7 days.",
-        "Add 1 portion of veg to lunch daily this week.",
-        "Carry a planned snack (protein + fibre) for the afternoon dip.",
-    ],
-    "sleep": [
-        "Dim lights + no screens 30 minutes before bed.",
-        "Keep wake time within ±30 minutes every day for 7 days.",
-        "Set a caffeine cut-off 8 hours before bedtime.",
-    ],
-    "movement": [
-        "Walk 10 minutes after lunch on Mon/Wed/Fri this week.",
-        "Do one ‘movement snack’ (stairs or 20 squats) each afternoon.",
-        "Stretch 5 minutes after dinner, 4×/week.",
-    ],
-    "stress": [
-        "Mid-day breathing: inhale 4, exhale 6 for 2 minutes.",
-        "Evening brain-dump: write tomorrow’s top 3 before bed.",
-        "Schedule a 10-minute recovery block (walk, stretch, music) on busy days.",
-    ],
-    "thoughts": [
-        "Daily reframe: one unhelpful thought → a balanced alternative.",
-        "End-of-day: write one thing that went right.",
-        "Use ‘yet’ language: add “…yet” to any “I can’t” thought.",
-    ],
-    "emotions": [
-        "Evening ‘pause before snacking’: water + 3 breaths + choose a planned snack.",
-        "Name it to tame it: label one emotion when it shows up.",
-        "List two non-food soothers (short walk, shower, stretch) and try one nightly.",
-    ],
-    "social": [
-        "Send one short check-in message today.",
-        "Book a 10-minute call/walk with someone this week.",
-        "Join or re-join one group activity this month (class, club, faith/community).",
-    ],
-}
-
-# Keywords → pillar
-INTENT_KEYWORDS = [
-    ({"stress","stressed","anxious","anxiety","tense","overwhelmed"}, "stress"),
-    ({"sleep","insomnia","tired","can’t sleep","cant sleep","awake"}, "sleep"),
-    ({"snack","snacking","nutrition","diet","food","eat","eating","gut"}, "nutrition"),
-    ({"exercise","move","movement","workout","walk","steps"}, "movement"),
-    ({"focus","clutter","organise","environment","routine","structure"}, "environment"),
-    ({"negative thoughts","self talk","mindset","thoughts","motivation"}, "thoughts"),
-    ({"emotions","emotional","comfort eat","urge","craving","binge"}, "emotions"),
-    ({"lonely","isolated","connection","friends","social"}, "social"),
-]
-
-def map_intent_to_pillar(text: str):
-    t = (text or "").lower()
-    for words, pillar in INTENT_KEYWORDS:
-        if any(w in t for w in words):
-            return pillar
-    return None
-
-def your_voice_reply(pillar: str, user_text: str) -> str:
-    """Warm, encouraging first line + 2–3 concrete steps (your voice)."""
-    label = {
-        "environment": "Environment & Structure",
-        "nutrition": "Nutrition & Gut Health",
-        "sleep": "Sleep",
-        "movement": "Exercise & Movement",
-        "stress": "Stress Management",
-        "thoughts": "Thought Patterns",
-        "emotions": "Emotional Regulation",
-        "social": "Social Connection",
-    }[pillar]
-    tips = PILLAR_TIPS[pillar][:3]
-
-    warm = "You’re not alone—let’s make this easier, step by step."
-    if pillar in {"stress","sleep","emotions"}:
-        warm = "Makes sense you’re feeling this—let’s soften it with a few doable steps."
-    elif pillar in {"movement","environment"}:
-        warm = "We’ll start small and make progress feel easy."
-
-    bullets = "\n".join([f"- {t}" for t in tips])
-    footer = "(Pillar: " + label + "; aim for 80% consistency, 20% flexibility, 100% human.)"
-    return f"{warm}\n{bullets}\n{footer}"
 
 # ==================================================
-# Unified router + WhatsApp webhook
+# Web JSON endpoint (/smartie)
 # ==================================================
-
-def route_message(user_id: str, text: str):
-    """
-    Unified Smartie brain for BOTH web and WhatsApp.
-    Order: 1) Tracking → 2) Baseline → 3) Your-voice coaching → 4) AI fallback
-    Returns: {"reply": "..."}
-    """
-    lower = (text or "").strip().lower()
-
-    # ---- 1) Tracking intents ----
-    if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
-        _ = log_done(user_id=user_id)
-        g = get_goal(user_id)
-        if g:
-            return {"reply": (
-                "Nice work — logged for today! ✅\n"
-                f"Goal: “{g.text}” ({g.cadence})\n"
-                "Say **progress** to see the last 14 days."
-            )}
-        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one."}
-
-    if lower in {"progress", "summary", "stats"}:
-        return {"reply": tracker_summary(user_id)}
-
-    if lower in {"history", "recent"}:
-        logs = last_n_logs(user_id, 5)
-        if not logs:
-            return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today."}
-        lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
-        return {"reply": "\n".join(lines)}
-
-    if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
-        g = get_goal(user_id)
-        if g:
-            return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."}
-        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one."}
-
-def route_message(user_id: str, text: str) -> dict:
-    """
-    Unified Smartie brain for both web and WhatsApp.
-    Order:
-        1) Tracking intents
-        2) Pillar advice (Smartie Playbook)
-        3) Baseline flow (8 pillars → Pareto → SMARTS)
-        4) Your-voice coaching (intent → pillar → tips)
-        5) AI fallback
-    Returns: {"reply": "..."}
-    """
-    lower = (text or "").strip().lower()
-    tag = f"\n{EITY20_TAGLINE}" if 'EITY20_TAGLINE' in globals() else ""
-
-    # ---- 1) Tracking intents ----
-    if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
-        _ = log_done(user_id=user_id)
-        g = get_goal(user_id)
-        if g:
-            return {"reply": (
-                "Nice work – logged for today! ✅\n"
-                f"Goal: {g.text} ({g.cadence})\n"
-                "Say **progress** to see the last 14 days."
-            ) + tag}
-        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
-
-    if lower in {"progress", "summary", "stats"}:
-        return {"reply": tracker_summary(user_id) + tag}
-
-    if lower in {"history", "recent"}:
-        logs = last_n_logs(user_id, 5)
-        if not logs:
-            return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today." + tag}
-        lines = ["Recent check-ins:"] + [f"- {e.date.isoformat()}" for e in logs]
-        return {"reply": "\n".join(lines) + tag}
-
-    if lower in {"what’s my goal", "whats my goal", "goal", "show goal"}:
-        g = get_goal(user_id)
-        if g:
-            return {"reply": f"Your goal is: {g.text} (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
-        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
-
-    # ---- 2) Pillar advice (Smartie Playbook) ----
-    if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
-        return {"reply": compose_reply("environment", text)}
-    if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
-        return {"reply": compose_reply("nutrition", text)}
-    if any(k in lower for k in ["sleep", "insomnia", "tired", "can’t sleep", "cant sleep"]):
-        return {"reply": compose_reply("sleep", text)}
-    if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
-        return {"reply": compose_reply("exercise", text)}
-    if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
-        return {"reply": compose_reply("stress", text)}
-    if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
-        return {"reply": compose_reply("thoughts", text)}
-    if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
-        return {"reply": compose_reply("emotions", text)}
-    if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
-        return {"reply": compose_reply("social", text)}
-
-    # ---- 3) Baseline flow (8 pillars → Pareto → SMARTS) ----
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        return bl
-
-    # ---- 4) Your-voice coaching (intent → pillar → tips) ----
-    pillar = map_intent_to_pillar(text)
-    if pillar:
-        return {"reply": your_voice_reply(pillar, text)}
-
-    # ---- 5) AI fallback (short, warm, actionable) ----
-    sd = style_directive(text)
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
-            {"role": "user", "content": f"{sd}\n\nUser: {text}"},
-        ],
-        max_tokens=420,
-        temperature=0.75,
-    )
-    return {"reply": response.choices[0].message.content.strip() + tag}
-
-# --------------------------------------------------
-# Tone dial for the OpenAI fallback
-# --------------------------------------------------
-def style_directive(user_text: str) -> str:
-    t = (user_text or "").lower()
-    distress = any(w in t for w in [
-        "overwhelmed","stressed","anxious","worried","exhausted","burned out",
-        "failed","failing","guilty","ashamed","can't","cant","stuck","hard","struggle","struggling","depressed","low"
-    ])
-    celebrate = any(w in t for w in [
-        "win","progress","did it","managed","proud","streak","improved","better","nailed it","success"
-    ])
-    if distress:
-        return "STYLE=Warm, encouraging first sentence. Then 2–3 concrete, doable steps."
-    if celebrate:
-        return "STYLE=Enthusiastic first sentence. Then one small step-up."
-    return "STYLE=Friendly, encouraging first sentence. Then 2–3 practical steps."
-
-# --------------------------------------------------
-# Smartie System Prompt for the fallback
-# --------------------------------------------------
-SMARTIE_SYSTEM_PROMPT = """
-You are Smartie, the eity20 coach. Give short, friendly, encouraging coaching with practical next steps.
-
-Focus areas:
-• The 8 pillars: Environment & Structure, Nutrition & Gut Health, Sleep, Exercise & Movement, Stress Management, Thought Patterns, Emotional Regulation, Social Connection.
-• The SMARTS framework: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
-• The eity20 principle: 80% consistency, 20% flexibility, 100% human.
-• The Pareto effect: focus on the 20% of actions that drive 80% of outcomes.
-
-The 8 pillars of health and wellbeing:
-1. Environment & Structure
-2. Nutrition & Gut Health
-3. Sleep
-4. Exercise & Movement
-5. Stress Management
-6. Thought Patterns
-7. Emotional Regulation
-8. Social Connection
-
-The SMARTS framework for sustainable change:
-• Sustainable – choose habits you can maintain long-term (not quick fixes).
-• Mindful mindset – be aware and compassionate, aim for progress not perfection.
-• Aligned – set goals that reflect your values and life circumstances.
-• Realistic – keep steps small and doable with current time, energy, and resources.
-• Train your brain – consistency builds habits and rewires behaviour.
-• Speak up – ask for support, share feelings, advocate for your needs.
-
-Response rules:
-1) Replies = 1 warm human line + 2–3 short, concrete steps.
-2) Be specific and doable (time, trigger, frequency). Avoid long lectures.
-3) Validate distress; celebrate wins.
-4) Mention the relevant pillar or SMARTS principle once.
-5) Progress over perfection (80/20). No medical diagnosis.
-"""
-
-# -----------------------------------------------------
-# Helper to derive a stable user_id
-# -----------------------------------------------------
 def derive_user_id(req_json, flask_request):
     uid = (req_json or {}).get("user_id")
     if uid:
@@ -347,9 +275,6 @@ def derive_user_id(req_json, flask_request):
     raw = f"{flask_request.remote_addr}|{flask_request.headers.get('User-Agent','')}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-# -----------------------------------------------------
-# Smartie Reply Endpoint (web clients)
-# -----------------------------------------------------
 @app.route("/smartie", methods=["POST"])
 def smartie_reply():
     try:
@@ -361,8 +286,9 @@ def smartie_reply():
         traceback.print_exc()
         return jsonify({"reply": "Oops—something went wrong. Try again in a moment."}), 500
 
-# -----------------------------------------------------
-# Run app
-# -----------------------------------------------------
+
+# ==================================================
+# Run app (dev)
+# ==================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
