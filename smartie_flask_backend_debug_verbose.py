@@ -5,7 +5,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from twilio.rest import Client
-from smartie_playbook import compose_reply, PILLARS, EITY20_TAGLINE
+from smartie_playbook import compose_reply, propose_smarts_goal
+PENDING_GOALS: dict[str, dict] = {}
 
 # 1) Structured baseline flow (8 pillars → Pareto → SMARTS)
 from baseline_flow import handle_baseline
