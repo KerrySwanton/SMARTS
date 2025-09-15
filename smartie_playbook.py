@@ -2,6 +2,228 @@
 
 EITY20_TAGLINE = "Aim for 80% consistency, 20% flexibility — 100% human."
 
+# -------------------------------------------------
+# Nutrition library (80% foundation / 20% flexibility)
+# -------------------------------------------------
+
+def _norm(s: str) -> str:  # simple normaliser for keyword matching
+    return (s or "").lower()
+
+NUTRITION_80 = {
+    "starchy_carbohydrates": {
+        "whole_grains": [
+            "brown rice","wild rice","corn","whole oats","quinoa","barley",
+            "rye","amaranth","buckwheat","spelt","sorghum","bulgur wheat","freekeh"
+        ],
+        "starchy_foods": [
+            "bread","crackers","rice cakes","oat cakes","breakfast cereal (Weetabix, Bran Flakes, All Bran)",
+            "popcorn","couscous","pasta","noodles"
+        ],
+        "fruit": [
+            "bananas","apples","kiwifruit","berries","mango","citrus fruits",
+            "pineapple","plums","raisins","dates"
+        ],
+        "vegetables": [
+            "parsnips","carrots","white potato","sweet potato","corn","peas","squash"
+        ],
+        "nutritional_benefits": [
+            "high fibre (gut health)","B vitamins (e.g. thiamine for energy & nerves)",
+            "folate (blood cells & nervous system)","magnesium (reduces fatigue)",
+            "copper (immune function)","antioxidants (vit C, E, flavonoids, polyphenols)"
+        ],
+        "health_benefits": [
+            "steady energy & blood sugar","improves gut health",
+            "supports mood, concentration, cognition; reduces brain fog",
+            "satiating; supports healthy cholesterol & heart health; lowers risk of T2D & bowel cancer"
+        ],
+    },
+
+    "protein": {
+        "lean_meat": ["chicken","turkey","beef (moderation)","lamb (moderation)","venison","pork (moderation)","veal","goat"],
+        "organ_meat": ["liver","kidney","heart"],
+        "oily_fish": ["salmon","trout","mackerel","sardines","whitebait"],
+        "dairy": ["milk","yoghurt","cheese","cream cheese"],
+        "dairy_alternatives": ["soya drinks","soya yoghurts","oat milk","nut milks","rice milk"],
+        "legumes": [
+            "beans (kidney, soybeans, chickpeas, butter, cannellini)",
+            "lentils (puy, green, brown, red, black)",
+            "peas (chickpeas, split peas, sweet peas, shelling peas)"
+        ],
+        "nutritional_benefits": [
+            "high-quality protein","fibre (legumes)","iron, zinc, selenium, calcium",
+            "B vitamins (B12, B6, B9, B2)","vitamins A, D",
+            "omega-3 fatty acids","taurine, creatine, carnitine, carnosine",
+            "tryptophan, tyrosine"
+        ],
+        "health_benefits": [
+            "muscle growth & repair; stronger tendons","reduces sarcopenia & bone loss",
+            "better sleep patterns","satiating (supports weight management)",
+            "tryptophan → serotonin/melatonin (mood & sleep)","tyrosine → dopamine & adrenaline (emotion & stress regulation; thyroid support)"
+        ],
+    },
+
+    "healthy_unsaturated_fat": {
+        "oily_fish": ["salmon","mackerel","sardines","anchovies","kippers","pilchards","trout","herring"],
+        "seeds": ["flax","chia","sesame","sunflower"],
+        "nuts": ["almonds","brazil nuts","walnuts","hazelnuts"],
+        "plant_oils": ["olive oil","rapeseed oil","flaxseed oil","soybean oil"],
+        "fortified_omega3": ["eggs","yoghurt","milk","soy beverages","bread","butter spreads"],
+        "fruit_veg_fats": ["avocados","olives","coconut"],
+        "nutritional_benefits": [
+            "fibre (seeds)","vitamin B12 & D (fish)","omega-3 & omega-6 fatty acids",
+            "MUFAs (olive oil, avocado)","PUFAs (walnuts, fish)","improves absorption of vitamins A, D, E, K"
+        ],
+        "health_benefits": [
+            "supports heart health (BP, clotting)","lower dementia risk (esp. Alzheimer’s)",
+            "improves cognition & working memory","benefits ADHD symptoms (attention, impulsivity)",
+            "regulates mood (depression)","eye health (reduced AMD risk)",
+            "reduces inflammation (e.g., RA, joint health)","may lower breast/colon cancer risk"
+        ],
+    },
+
+    "fruit_veg_target": {
+        "guidance": ["aim ≥5 portions/day; rich in antioxidants, nutrients & fibre for brain and body"]
+    },
+
+    "gut_brain_support": {
+        "examples": [
+            "antioxidants","omega-3 fatty acids","probiotics & prebiotics",
+            "high-fibre foods","fermented foods (sauerkraut, kimchi, Greek yoghurt, kefir)"
+        ]
+    },
+
+    "fluids": {
+        "guidance": ["drink 6–8 glasses (≈2L) water daily; supports cognition, attention, emotions, energy"]
+    },
+}
+
+NUTRITION_20 = {
+    "unhealthy_saturated_fat": {
+        "snacks": ["peanuts (salted/roasted)","vegetable crisps","crisps","milk/white chocolate","cheese straws"],
+        "takeaway": ["pizza","curry","fish & chips","burgers","Chinese"],
+        "processed": ["processed meats (ham, bacon, salami, sausage, pâté, tinned)","ready meals","powdered soup",
+                      "packaged cakes, pastries, biscuits, puddings"],
+    },
+    "sugar_and_alcohol": {
+        "alcohol": [
+            "wine (red/white/rosé)","sparkling (Prosecco, Champagne)","beer/lager/ale/stout/cider",
+            "spirits (gin, whisky, rum, vodka)","alcopops (e.g., Smirnoff Ice, Bacardi Breezer, WKD)"
+        ],
+        "processed_drinks": ["fizzy drinks (cola, lemonade, Fanta)","energy drinks (Monster, Red Bull)"],
+        "processed_foods": [
+            "confectionery (chocolate, sweets)","ready meals","powdered soups","breakfast cereals & bars",
+            "packaged cakes, pastries, biscuits, puddings","canned fruit in syrup","ice cream","bread/rolls (sweetened)"
+        ],
+    },
+    "salt_processed": {
+        "salty_snacks": ["crisps","salted nuts","biscuits","popcorn"],
+        "cheese": ["halloumi","blue cheese"],
+        "takeaway": ["pizza","curry","Chinese"],
+        "processed": ["ready meals","processed meat (sausages, bacon, ham, pâté, chorizo, salami)",
+                      "retail sauces (ketchup, soy sauce, mayonnaise, pickles, pasta sauces)"],
+    },
+}
+
+# quick keyword detector for "food lists" requests
+_FOOD_KEYS = {"food","foods","eat","eating","protein","carb","carbs","fat","fats","snack","snacks","examples","list","what to eat"}
+
+def wants_food_list(user_line: str) -> bool:
+    t = _norm(user_line)
+    return any(k in t for k in _FOOD_KEYS)
+
+def _fmt(items: list[str], max_n=8) -> str:
+    if not items:
+        return ""
+    cut = items[:max_n]
+    more = "…" if len(items) > max_n else ""
+    return ", ".join(cut) + more
+
+def nutrition_foods_answer(user_line: str) -> str:
+    """
+    Return an 80/20 foods overview or a focused category list based on the user query.
+    Keeps output compact and scannable, with prompts to ask for more.
+    """
+    t = _norm(user_line)
+
+    # If user hints at "20%" (treats/sugar/takeaway/alcohol)
+    if any(k in t for k in ["treat","20","twenty","alcohol","sugar","sweet","takeaway","crisps","chocolate","salt"]):
+        lines = ["**20% Flexibility — examples (use sparingly):**"]
+        u = NUTRITION_20
+        lines += [
+            f"- Saturated fat (snacks): {_fmt(u['unhealthy_saturated_fat']['snacks'])}",
+            f"- Saturated fat (takeaway): {_fmt(u['unhealthy_saturated_fat']['takeaway'])}",
+            f"- Saturated fat (processed): {_fmt(u['unhealthy_saturated_fat']['processed'])}",
+            f"- Sugar & alcohol (alcohol): {_fmt(u['sugar_and_alcohol']['alcohol'])}",
+            f"- Sugar & alcohol (drinks): {_fmt(u['sugar_and_alcohol']['processed_drinks'])}",
+            f"- Sugar & alcohol (foods): {_fmt(u['sugar_and_alcohol']['processed_foods'])}",
+            f"- Salt/processed (snacks): {_fmt(u['salt_processed']['salty_snacks'])}",
+            f"- Salt/processed (processed): {_fmt(u['salt_processed']['processed'])}",
+        ]
+        lines.append(EITY20_TAGLINE)
+        return "\n".join(lines)
+
+    # 80% defaults or specific categories
+    eighty = NUTRITION_80
+    lines = ["**80% Foundation — everyday foods:**"]
+
+    if any(k in t for k in ["protein","meat","fish","dairy","legume","beans","lentil"]):
+        p = eighty["protein"]
+        lines += [
+            f"- Lean meat: {_fmt(p['lean_meat'])}",
+            f"- Oily fish: {_fmt(p['oily_fish'])}",
+            f"- Dairy/alt: {_fmt(p['dairy'])}; {_fmt(p['dairy_alternatives'])}",
+            f"- Legumes: {_fmt(p['legumes'])}",
+            f"- Benefits: {_fmt(p['health_benefits'], max_n=4)}",
+        ]
+    elif any(k in t for k in ["carb","carbs","starch","grain","oats","rice","pasta","bread","cereal","noodles"]):
+        s = eighty["starchy_carbohydrates"]
+        lines += [
+            f"- Whole grains: {_fmt(s['whole_grains'])}",
+            f"- Starchy foods: {_fmt(s['starchy_foods'])}",
+            f"- Fruit: {_fmt(s['fruit'])}",
+            f"- Vegetables: {_fmt(s['vegetables'])}",
+            f"- Benefits: {_fmt(s['health_benefits'], max_n=4)}",
+        ]
+    elif any(k in t for k in ["fat","fats","omega","nuts","seeds","oil","olive","avocado"]):
+        f = eighty["healthy_unsaturated_fat"]
+        lines += [
+            f"- Oily fish: {_fmt(f['oily_fish'])}",
+            f"- Nuts & seeds: {_fmt(f['nuts'])}; {_fmt(f['seeds'])}",
+            f"- Plant oils: {_fmt(f['plant_oils'])}",
+            f"- Fruit/veg fats: {_fmt(f['fruit_veg_fats'])}",
+            f"- Benefits: {_fmt(f['health_benefits'], max_n=4)}",
+        ]
+    elif any(k in t for k in ["gut","microbiome","fermented","fibre","fiber","kefir","yoghurt","yogurt","kimchi"]):
+        g = eighty["gut_brain_support"]
+        lines += [
+            f"- Examples: {_fmt(g['examples'])}",
+            "Tip: add one fermented food 3x/week.",
+        ]
+    elif any(k in t for k in ["fruit","veg","vegetable","5-a-day","5 a day"]):
+        fv = eighty["fruit_veg_target"]
+        lines += [
+            f"- Guidance: {_fmt(fv['guidance'])}",
+            "Tip: add 1 portion at lunch today.",
+        ]
+    elif any(k in t for k in ["drink","water","fluid","hydrate","hydration"]):
+        fl = eighty["fluids"]
+        lines += [
+            f"- Guidance: {_fmt(fl['guidance'])}",
+            "Tip: carry a bottle; aim for 6–8 glasses.",
+        ]
+    else:
+        # General overview
+        s = eighty["starchy_carbohydrates"]; p = eighty["protein"]; f = eighty["healthy_unsaturated_fat"]
+        lines += [
+            f"- Carbs (grains/veg/fruit): {_fmt(s['whole_grains'])}",
+            f"- Protein (meat/fish/dairy/legumes): {_fmt(p['legumes'])}",
+            f"- Healthy fats (oils/nuts/seeds/fish): {_fmt(f['plant_oils'])}",
+            "Ask for details: try 'protein ideas', 'healthy fats', 'gut-friendly foods', or 'show 20%'.",
+        ]
+
+    lines.append(EITY20_TAGLINE)
+    return "\n".join(lines)
+
 # Short “voice” elements Smartie can stitch together
 TONE = {
     "warm_ack": [
@@ -149,6 +371,10 @@ def compose_reply(pillar_key: str, user_line: str = "") -> str:
     p = PILLARS.get(pk)
     if not p:
         return "Thank you for asking — what exactly would you like to know?"
+
+    # NEW: if nutrition + user asks for foods/examples → return foods answer directly
+    if pk == "nutrition" and wants_food_list(user_line):
+        return nutrition_foods_answer(user_line)
 
     label = p["label"]
     text = (user_line or "").lower()
