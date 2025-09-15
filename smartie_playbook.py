@@ -214,19 +214,20 @@ if not suggestions:
 s1 = suggestions[chosen_idx or 0]
 s2 = suggestions[((chosen_idx or 0) + 1) % len(suggestions)]
 
-# Offer a goal line (optional)
-offer = propose_smarts_goal(pk)
-goal_line = f"\n{offer['offer']}" if offer.get("offer") else ""
+    # Offer a goal line (optional)
+    offer = propose_smarts_goal(pk, user_line=text)
+    goal_line = f"\n{offer['offer']}" if offer.get("offer") else ""
 
-return "\n".join([
-    "Yes — of course. Here are two tiny actions you can try:",
-    f"• {s1}",
-    f"• {s2}",
-    EITY20_TAGLINE,
-    f"(Pillar: {label})",
-]) + goal_line
+    return "\n".join([
+        "Yes — of course. Here are two tiny actions you can try:",
+        f"• {s1}",
+        f"• {s2}",
+        EITY20_TAGLINE,
+        f"(Pillar: {label})",
+    ]) + goal_line
 
-    # ---- default: not explicitly advice; short warm line + a generic tiny-step ----
+else:
+    # ---- default: not explicitly advice; short warm line + generic tiny-step ----
     ack = TONE["warm_ack"][0]
     return "\n".join([
         ack,
