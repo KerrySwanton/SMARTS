@@ -140,102 +140,111 @@ FOCUS_OPTIONS = {
 
 def compose_reply(pillar_key: str, user_line: str = "") -> str:
     """
-    Advice-first reply when a user explicitly asks for help.
-    If they don't ask for advice, give a short warm line + one generic tiny-step.
+    Smartie's advice-first composer.
+    - If the user explicitly asks for advice/tips, answer with 2 concrete steps
+      and (optionally) offer a SMARTS-shaped goal.
+    - Otherwise, give a short warm line plus one generic tiny-step nudge.
     """
     pk = pillar_key
     p = PILLARS.get(pk)
     if not p:
-        return "Thank you for asking, what exactly would you like to know."
+        return "Thank you for asking — what exactly would you like to know?"
 
+    label = p["label"]
     text = (user_line or "").lower()
 
-    # --- detect if user is explicitly asking for advice/help ---
+    # --- Detect explicit "ask for advice" intent ---
     advice_markers = [
         "advice", "tip", "tips", "help", "how do i", "how to", "what should",
         "ideas", "suggest", "suggestion", "recommend", "recommendation", "plan",
-        "could you", "can you", "please", "what can i do", "where to start"
+        "where to start", "what can i do", "can you help"
     ]
     is_advice = any(m in text for m in advice_markers) or text.endswith("?")
 
-    # --- lightweight 'specific topic' finder per pillar (skip clarify if present) ---
-    focus_map = {
-        "environment": ["morning routine", "evening reset", "visual cues"],
-        "nutrition":   ["meal timing", "food choices", "gut balance"],
-        "sleep":       ["wind-down", "night wakings", "morning light"],
-        "exercise":    ["daily movement", "strength", "walks"],
-        "stress":      ["breathing", "worry tools", "decompression"],
-        "thoughts":    ["self-talk", "perfectionism", "reframing"],
-        "emotions":    ["soothe", "urge surfing", "journalling"],
-        "social":      ["ask for help", "connection", "boundaries"],
-    }
-    # map of quick keywords -> which suggestion index to prefer
+    # --- Quick routing to a specific suggestion index (if a keyword appears) ---
     specific_map = {
         "nutrition": {
-            "timing": 0, "breakfast": 0, "regular": 0,
+            "meal": 0, "timing": 0, "breakfast": 0, "regular": 0,
             "protein": 1, "snack": 1, "veg": 1, "fruit": 1, "plants": 1,
             "gut": 2, "bloat": 2, "ibs": 2, "fibre": 2, "fiber": 2
         },
         "sleep": {
-            "wind": 0, "bed": 0, "screen": 0, "caffeine": 2, "wake": 1, "waking": 1, "night": 1,
+            "wind": 0, "bed": 0, "screen": 0, "caffeine": 0,
+            "wake": 1, "waking": 1, "night": 1,
             "morning": 2, "light": 2, "sun": 2
         },
-        "exercise": {"walk": 0, "steps": 0, "strength": 1, "weights": 1, "stretch": 2, "mobility": 2},
-        "stress": {"breathe": 0, "breathing": 0, "worry": 1, "ruminate": 1, "rumination": 1, "pause": 2, "decompress": 2},
-        "thoughts": {"self-talk": 0, "talk": 0, "kind": 0, "perfection": 1, "perfect": 1, "reframe": 2, "reframing": 2},
-        "emotions": {"soothe": 0, "soothing": 0, "urge": 1, "craving": 1, "binge": 1, "comfort": 1, "journal": 2, "journalling": 2, "journaling": 2},
-        "social": {"ask": 0, "help": 0, "support": 0, "friend": 1, "connect": 1, "connection": 1, "boundary": 2},
-        "environment": {"morning": 0, "start": 0, "evening": 1, "reset": 1, "cue": 2, "cues": 2},
+        "exercise": {
+            "walk": 0, "steps": 0,
+            "strength": 1, "weights": 1,
+            "stretch": 2, "mobility": 2
+        },
+        "stress": {
+            "breathe": 0, "breathing": 0,
+            "worry": 1, "ruminate": 1, "rumination": 1,
+            "pause": 2, "decompress": 2
+        },
+        "thoughts": {
+            "self-talk": 0, "talk": 0, "kind": 0,
+            "perfection": 1, "perfect": 1,
+            "reframe": 2, "reframing": 2
+        },
+        "emotions": {
+            "soothe": 0, "soothing": 0,
+            "urge": 1, "craving": 1, "binge": 1, "comfort": 1,
+            "journal": 2, "journaling": 2
+        },
+        "social": {
+            "ask": 0, "help": 0, "support": 0,
+            "friend": 1, "connect": 1, "connection": 1,
+            "boundary": 2
+        },
+        "environment": {
+            "morning": 0, "start": 0,
+            "evening": 1, "reset": 1,
+            "cue": 2, "cues": 2, "visual": 2
+        },
     }
 
-    label = p["label"]
-    suggestions = p["suggestions"]
-
     if is_advice:
-        # 1) try to pick a specific suggestion based on keywords
+        # 1) Try to detect a specific subtopic to pick a step directly
         chosen_idx = None
         for kw, idx in specific_map.get(pk, {}).items():
             if kw in text:
                 chosen_idx = idx
                 break
 
-        # 2) if not specific, ask a brief clarify question listing 3 focus options
-        if chosen_idx is None and not any(k in text for k in specific_map.get(pk, {})):
-            options = " / ".join(focus_map.get(pk, ["option 1", "option 2", "option 3"]))
-            return (
-                f"Yes — happy to help with **{label.lower()}**.\n"
-                f"Which area should we focus on: {options}?\n"
-                f"Tell me one and I’ll share 2–3 tiny, realistic steps."
-            )
+        # 2) Build the two concrete steps (rotate or fallback to generic list)
+        suggestions = p.get("suggestions", [])
+        if not suggestions:
+            suggestions = [
+                "Pick one 5-minute action you can repeat this week.",
+                "Keep it realistic and time-anchored."
+            ]
 
-        # 3) give 2 concrete steps (rotate if needed)
-if not suggestions:
-    suggestions = ["Pick one 5-minute action you can repeat this week.", "Keep it realistic and time-anchored."]
-s1 = suggestions[chosen_idx or 0]
-s2 = suggestions[((chosen_idx or 0) + 1) % len(suggestions)]
+        s1 = suggestions[chosen_idx or 0]
+        s2 = suggestions[((chosen_idx or 0) + 1) % len(suggestions)]
 
-    # Offer a goal line (optional)
-    offer = propose_smarts_goal(pk, user_line=text)
-    goal_line = f"\n{offer['offer']}" if offer.get("offer") else ""
+        # 3) Offer a goal (optional)
+        offer = propose_smarts_goal(pk, user_line=user_line)
+        goal_line = f"\n{offer['offer']}" if offer.get("offer") else ""
 
-    return "\n".join([
-        "Yes — of course. Here are two tiny actions you can try:",
-        f"• {s1}",
-        f"• {s2}",
-        EITY20_TAGLINE,
-        f"(Pillar: {label})",
-    ]) + goal_line
+        return "\n".join([
+            "Yes — of course. Here are two tiny actions you can try:",
+            f"• {s1}",
+            f"• {s2}",
+            EITY20_TAGLINE,
+            f"(Pillar: {label})",
+        ]) + goal_line
 
-else:
-    # ---- default: not explicitly advice; short warm line + generic tiny-step ----
-    ack = TONE["warm_ack"][0]
-    return "\n".join([
-        ack,
-        "Pick one tiny action you can repeat this week.",
-        TONE["reinforce_8020"][0],
-        f"(Pillar: {label})",
-    ])
-
+    else:
+        # Default: not explicitly asking for advice → warm nudge + tiny step
+        ack = TONE["warm_ack"][0]
+        return "\n".join([
+            ack,
+            "Pick one tiny action you can repeat this week.",
+            TONE["reinforce_8020"][0],
+            f"(Pillar: {label})",
+        ])
 def propose_smarts_goal(pillar_key: str, idx: int = 0, duration: str = "the next 2 weeks") -> dict:
     """
     Build a SMARTS-shaped goal suggestion from the pillar library.
