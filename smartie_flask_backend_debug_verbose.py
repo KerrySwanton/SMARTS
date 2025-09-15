@@ -197,15 +197,15 @@ def route_message(user_id: str, text: str):
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})."}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one."}
 
-    def route_message(user_id: str, text: str) -> dict:
+def route_message(user_id: str, text: str) -> dict:
     """
     Unified Smartie brain for both web and WhatsApp.
     Order:
-      1) Tracking intents
-      2) Pillar advice (Smartie Playbook)
-      3) Baseline flow (8 pillars → Pareto → SMARTS)
-      4) Your-voice coaching (intent → pillar → tips)
-      5) AI fallback
+        1) Tracking intents
+        2) Pillar advice (Smartie Playbook)
+        3) Baseline flow (8 pillars → Pareto → SMARTS)
+        4) Your-voice coaching (intent → pillar → tips)
+        5) AI fallback
     Returns: {"reply": "..."}
     """
     lower = (text or "").strip().lower()
@@ -217,10 +217,10 @@ def route_message(user_id: str, text: str):
         g = get_goal(user_id)
         if g:
             return {"reply": (
-                "Nice work — logged for today! ✅\n"
-                f"Goal: “{g.text}” ({g.cadence})\n"
-                "Say **progress** to see the last 14 days." + tag
-            )}
+                "Nice work – logged for today! ✅\n"
+                f"Goal: {g.text} ({g.cadence})\n"
+                "Say **progress** to see the last 14 days."
+            ) + tag}
         return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
 
     if lower in {"progress", "summary", "stats"}:
@@ -230,45 +230,30 @@ def route_message(user_id: str, text: str):
         logs = last_n_logs(user_id, 5)
         if not logs:
             return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today." + tag}
-        lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
+        lines = ["Recent check-ins:"] + [f"- {e.date.isoformat()}" for e in logs]
         return {"reply": "\n".join(lines) + tag}
 
-    if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
+    if lower in {"what’s my goal", "whats my goal", "goal", "show goal"}:
         g = get_goal(user_id)
         if g:
-            return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
+            return {"reply": f"Your goal is: {g.text} (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # ---- 2) Pillar intents (Smartie Playbook) ----
-    # Environment & Structure
+    # ---- 2) Pillar advice (Smartie Playbook) ----
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
         return {"reply": compose_reply("environment", text)}
-
-    # Nutrition & Gut Health
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
         return {"reply": compose_reply("nutrition", text)}
-
-    # Sleep
-    if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
+    if any(k in lower for k in ["sleep", "insomnia", "tired", "can’t sleep", "cant sleep"]):
         return {"reply": compose_reply("sleep", text)}
-
-    # Exercise & Movement
     if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
         return {"reply": compose_reply("exercise", text)}
-
-    # Stress Management
     if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
         return {"reply": compose_reply("stress", text)}
-
-    # Thought Patterns
     if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
         return {"reply": compose_reply("thoughts", text)}
-
-    # Emotional Regulation
     if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
         return {"reply": compose_reply("emotions", text)}
-
-    # Social Connection
     if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
         return {"reply": compose_reply("social", text)}
 
@@ -277,7 +262,7 @@ def route_message(user_id: str, text: str):
     if bl is not None:
         return bl
 
-    # ---- 4) Your-voice coaching (rule-based) ----
+    # ---- 4) Your-voice coaching (intent → pillar → tips) ----
     pillar = map_intent_to_pillar(text)
     if pillar:
         return {"reply": your_voice_reply(pillar, text)}
@@ -285,29 +270,6 @@ def route_message(user_id: str, text: str):
     # ---- 5) AI fallback (short, warm, actionable) ----
     sd = style_directive(text)
     response = client.chat.completions.create(
-        model="gpt-4o-mini",  # change if needed
-        messages=[
-            {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
-            {"role": "user", "content": f"{sd}\n\nUser: {text}"},
-        ],
-        max_tokens=420,
-        temperature=0.75,
-    )
-    return {"reply": response.choices[0].message.content.strip() + tag}
-    
-    # ---- 2) Baseline flow (8 pillars → Pareto → SMARTS) ----
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        return bl
-
-    # ---- 3) Your-voice coaching (intent → pillar → tips) ----
-    pillar = map_intent_to_pillar(text)
-    if pillar:
-        return {"reply": your_voice_reply(pillar, text)}
-
-    # ---- 4) OpenAI fallback (short, warm, actionable) ----
-    sd = style_directive(text)
-    response = client.chat.completions.create(  # if using new SDK use client.chat.completions.create
         model="gpt-4",
         messages=[
             {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
@@ -316,7 +278,7 @@ def route_message(user_id: str, text: str):
         max_tokens=420,
         temperature=0.75,
     )
-    return {"reply": response.choices[0].message.content.strip()}
+    return {"reply": response.choices[0].message.content.strip() + tag}
 
 # --------------------------------------------------
 # Tone dial for the OpenAI fallback
