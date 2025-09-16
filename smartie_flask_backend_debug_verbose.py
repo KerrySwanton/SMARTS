@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from twilio.rest import Client
+from datetime import datetime, timezone, timedelta
 
 # Playbook (single source of truth for tone + advice)
 from smartie_playbook import (
@@ -21,6 +22,8 @@ from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
 PENDING_GOALS: dict[str, dict] = {}
 CONCERN_CHOICES: dict[str, dict] = {}
+# Last time we saw each user (in-memory; resets on restart unless you persist it)
+LAST_SEEN: dict[str, datetime] = {}
 
 # ==================================================
 # Safety-first + concern mapping + intent helpers
@@ -264,6 +267,22 @@ def route_message(user_id: str, text: str) -> dict:
     lower = (text or "").strip().lower()
     tag = f"\n{EITY20_TAGLINE}" if 'EITY20_TAGLINE' in globals() else ""
 
+        # --- 0) Greeting logic (first-time + returning after 24h) ---
+    now = datetime.now(timezone.utc)
+    last = LAST_SEEN.get(user_id)
+
+    # First ever message from this user
+    if last is None:
+        LAST_SEEN[user_id] = now
+        return {"reply": "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?"}
+
+    # Returning user: greet if it's been 24h since last message OR if they explicitly say hi
+    long_gap = (now - last) >= timedelta(hours=24)
+    said_hello = lower in {"hi", "hello", "hey", "hi smartie", "hello smartie"}
+    if long_gap or said_hello:
+        LAST_SEEN[user_id] = now
+        return {"reply": "Hello, welcome back. How are you today?"}
+    
     # --- 1) Safety first ---
     s = safety_check_and_reply(text)
     if s:
@@ -387,6 +406,9 @@ def route_message(user_id: str, text: str) -> dict:
         temperature=0.75,
     )
     return {"reply": response.choices[0].message.content.strip() + tag}
+
+    LAST_SEEN[user_id] = datetime.now(timezone.utc)
+    return {"reply": reply}
 
 # ==================================================
 # Flask app + OpenAI client
