@@ -19,6 +19,8 @@ from smartie_playbook import (
 from baseline_flow import handle_baseline
 from tracker import log_done, summary as tracker_summary, get_goal, last_n_logs
 
+PENDING_GOALS: dict[str, dict] = {}
+CONCERN_CHOICES: dict[str, dict] = {}
 
 # ==================================================
 # Safety-first + concern mapping + intent helpers
@@ -44,6 +46,44 @@ def safety_check_and_reply(text: str) -> str | None:
             "Smartie supports lifestyle change, but crises need urgent human help."
         )
     return None
+
+    return None
+
+# --- Priority concerns (curated pillar stacks, skip/short-circuit baseline) ---
+PRIORITY_CONCERNS: dict[str, list[str]] = {
+    "binge-eating": ["nutrition", "environment", "emotions", "thoughts"],
+    "emotional eating": ["nutrition", "environment", "emotions", "thoughts"],
+    "comfort eating": ["nutrition", "environment", "emotions", "thoughts"],
+    "bulimia": ["nutrition", "environment", "emotions", "thoughts"],
+    "ibs": ["nutrition", "stress", "sleep", "emotions"],
+    "hypertension": ["nutrition", "movement", "stress", "sleep"],
+    "high blood pressure": ["nutrition", "movement", "stress", "sleep"],
+    "anxiety": ["stress", "thoughts", "sleep", "emotions"],
+    "panic": ["stress", "thoughts", "sleep", "emotions"],
+    "low mood": ["sleep", "movement", "thoughts", "social"],
+    "depression": ["sleep", "movement", "thoughts", "social"],
+}
+
+# --- Priority concern detector ---
+def detect_priority_stack(text: str) -> list[str]:
+    """
+    Check if the user mentioned a priority concern that maps to a curated pillar stack.
+    Returns a list of pillar keys in priority order.
+    """
+    t = (text or "").lower()
+
+    PRIORITY_CONCERNS = {
+        "binge-eating": ["nutrition", "environment", "emotions", "thoughts"],
+        "eating disorder": ["nutrition", "emotions", "thoughts", "social"],
+        "adhd": ["environment", "nutrition", "sleep", "thoughts"],
+        # add more special cases here...
+    }
+
+    for k, stack in PRIORITY_CONCERNS.items():
+        if k in t:
+            return stack
+
+    return []
 
 # 2) Concern → suggested pillars (extended matrix)
 CONCERN_TO_PILLARS = {
@@ -185,6 +225,75 @@ Response rules:
 5) Progress over perfection (80/20). No medical diagnosis.
 """
 
+# --- Priority concern detector (skip/short-circuit baseline when matched) ---
+def detect_priority_stack(text: str) -> list[str]:
+    """
+    Return a curated, ordered list of pillar keys for priority concerns.
+    If nothing matches, return [] and the normal flow continues.
+    Pillar keys: "environment","nutrition","sleep","movement",
+                 "stress","thoughts","emotions","social"
+    """
+    t = (text or "").lower()
+
+    PRIORITY_MAP: list[tuple[tuple[str, ...], list[str]]] = [
+        # ------------------ Physical health ------------------
+        (("cholesterol","hyperlipid","dyslipid"),                     ["nutrition","movement","environment"]),
+        (("overweight","obese","weight","weight loss","weight-loss",
+          "glp-1","ozempic","wegovy","mounjaro","tirzepatide","semaglutide"),
+                                                                     ["nutrition","movement","thoughts","environment"]),
+        (("blood sugar","insulin resistance","type 2 diabetes","t2d",
+          "pre-diabetes","prediabetes"),                             ["nutrition","movement","sleep","stress"]),
+        (("menopause","perimenopause","peri-menopause"),             ["sleep","stress","emotions","social"]),
+        (("hypertension","high blood pressure","blood pressure"),    ["nutrition","movement","stress","sleep"]),
+        (("osteoarthritis","arthritis","joint pain"),                ["movement","stress","environment","sleep"]),
+        (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"),
+                                                                     ["nutrition","movement","stress","sleep"]),
+        (("copd","asthma","breathing difficulties","sleep apnoea","sleep apnea"),
+                                                                     ["movement","sleep","stress","environment"]),
+        (("liver disease","alcohol-related liver disease","arld",
+          "non-alcoholic fatty liver disease","nafld","fatty liver"),
+                                                                     ["nutrition","movement","stress","sleep"]),
+        (("kidney disease","ckd","chronic kidney"),                  ["nutrition","sleep","stress","movement"]),
+        (("osteopenia","osteoporosis","bone health"),                ["movement","nutrition","environment","sleep"]),
+        (("metabolic syndrome","high triglycerides","low hdl","large waist","waist circumference"),
+                                                                     ["nutrition","movement","sleep","stress"]),
+        (("autoimmune","multiple sclerosis","ms","graves","type 1 diabetes",
+          "rheumatoid arthritis","psoriasis","vasculitis"),          ["stress","nutrition","movement","sleep"]),
+
+        # ------------------ Mental health (ICD-11-ish) ------------------
+        (("low mood","depression","bipolar","seasonal affective","sad"),
+                                                                     ["sleep","movement","thoughts","social"]),
+        (("anxiety","gad","generalised anxiety","generalized anxiety"),
+                                                                     ["stress","thoughts","sleep","emotions"]),
+        (("ptsd","post-traumatic stress","stress disorder","trauma"),["stress","emotions","social","sleep"]),
+        (("emotional dysregulation","emotional disorder","binge eating","binge-eating",
+          "emotional eating","comfort eating","eating disorder","bed"),
+                                                                     ["nutrition","environment","emotions","thoughts"]),
+        (("adhd","attention deficit","asd","autism","neurodevelopmental"),
+                                                                     ["environment","nutrition","sleep","thoughts"]),
+        (("addiction","addictive behaviour","gaming","screen time","television","tv"),
+                                                                     ["environment","thoughts","social","sleep"]),
+        (("sleep-wake","circadian","insomnia","sleep disorder"),     ["sleep","environment","stress","thoughts"]),
+        (("mci","cognitive decline","neurocognitive","dementia","alzheimer"),
+                                                                     ["sleep","nutrition","movement","social"]),
+
+        # ------------------ Gut health ------------------
+        (("ibs","irritable bowel","bloating","constipation","diarrhoea","diarrhea"),
+                                                                     ["nutrition","stress","sleep","emotions"]),
+        (("leaky gut","intestinal permeability","crohn","ulcerative colitis","ibd",
+          "coeliac","celiac","autoimmune gastritis"),
+                                                                     ["nutrition","stress","sleep","emotions"]),
+        (("food allergy","food intolerance","gluten","dairy","wheat","histamine","mold","mould",
+          "reflux","gerd","acid reflux"),
+                                                                     ["nutrition","emotions","stress","sleep"]),
+    ]
+
+    for aliases, stack in PRIORITY_MAP:
+        if any(k in t for k in aliases):
+            return stack
+
+    return []
+
 # ==================================================
 # Unified router
 # ==================================================
@@ -225,18 +334,29 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # --- 3) Onboarding / Baseline / SMARTS goal ---
+    # --- 3) Concern-first: skip/short-circuit baseline when a priority concern is mentioned ---
+    stack = detect_priority_stack(text)  # make sure this helper is defined/imported
+    if stack:
+        first = stack[0]
+        reply = compose_reply(first, text)  # give immediate, pillar-specific advice
+        if len(stack) > 1:
+            rest_labels = [PILLARS[p]["label"] for p in stack[1:] if p in PILLARS]
+            if rest_labels:
+                reply += "\n\nNext we can explore: " + ", ".join(rest_labels) + "."
+        return {"reply": reply + tag}
+
+    # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
         bl = handle_baseline(user_id, text)   # asks concern → 8 ratings → suggest pillar → set goal
         if bl is not None:
             return bl
 
-    # Continue baseline if already mid-flow
+    # Continue baseline if mid-session
     bl = handle_baseline(user_id, text)
     if bl is not None:
         return bl
 
-    # ---- 4) Pillar advice (direct keywords → playbook) ----
+    # --- 5) Pillar advice (direct keywords → playbook) ---
 
     # Environment & Structure
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
@@ -244,16 +364,14 @@ def route_message(user_id: str, text: str) -> dict:
 
     # Nutrition & Gut Health  (with special nutrition sub-branches)
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
-        # 4a) Nutrition rules (SMARTS / eity20 guidance)
+        # 5a) Nutrition rules (SMARTS / eity20 guidance)
         if any(k in lower for k in NUTRITION_RULES_TRIGGERS):
             return {"reply": nutrition_rules_answer()}
-
-        # 4b) Food lists / 80–20 foods
+        # 5b) Food lists / 80–20 foods
         if any(k in lower for k in FOODS_TRIGGERS):
             return {"reply": nutrition_foods_answer()}
-
-        # 4c) General nutrition coaching (playbook)
-            return {"reply": compose_reply("nutrition", text)}
+        # 5c) General nutrition coaching (playbook)  ← fixed indent (sibling of 5a/5b)
+        return {"reply": compose_reply("nutrition", text)}
 
     # Sleep
     if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
@@ -279,7 +397,7 @@ def route_message(user_id: str, text: str) -> dict:
     if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
         return {"reply": compose_reply("social", text)}
 
-    # --- 5) Intent/concern mapper → pillar → playbook (support mode) ---
+    # --- 6) Intent/concern mapper → pillar → playbook (support mode) ---
     pillar = map_intent_to_pillar(text)
     if pillar:
         return {"reply": compose_reply(pillar, text)}
@@ -294,10 +412,10 @@ def route_message(user_id: str, text: str) -> dict:
             f"Want to do a 1-minute baseline and pick one to start?\n{EITY20_TAGLINE}"
         )}
 
-    # --- 6) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
+    # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
     sd = style_directive(text)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",   # keep in sync with what works on your account
+    response = client.chat_completions.create(  # or client.chat.completions.create if that's what your SDK uses
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
             {"role": "user", "content": f"{sd}\n\nUser: {text}"},
@@ -306,7 +424,6 @@ def route_message(user_id: str, text: str) -> dict:
         temperature=0.75,
     )
     return {"reply": response.choices[0].message.content.strip() + tag}
-
 
 # ==================================================
 # Flask app + OpenAI client
