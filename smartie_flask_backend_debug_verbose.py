@@ -394,9 +394,9 @@ def route_message(user_id: str, text: str) -> dict:
             f"Want to do a 1-minute baseline and pick one to start?\n{EITY20_TAGLINE}"
         )}
 
-    # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
+        # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
     sd = style_directive(text)
-    response = client.chat.completions.create( 
+    resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
@@ -405,9 +405,14 @@ def route_message(user_id: str, text: str) -> dict:
         max_tokens=420,
         temperature=0.75,
     )
-    return {"reply": response.choices[0].message.content.strip() + tag}
 
+    # build reply from OpenAI
+    reply = resp.choices[0].message.content.strip() + tag
+
+    # update last-seen time for this user
     LAST_SEEN[user_id] = datetime.now(timezone.utc)
+
+    # return response
     return {"reply": reply}
 
 # ==================================================
