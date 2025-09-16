@@ -337,21 +337,46 @@ def send_wa(to_e164: str, body: str):
         body=body
     )
 
+# ---------------------------
 # WhatsApp inbound webhook
+# ---------------------------
+from flask import request, jsonify
+
 @app.route("/wa/webhook", methods=["POST"])
 def wa_webhook():
-    # Twilio posts form-encoded data
-    from_num = request.form.get("From", "").replace("whatsapp:", "")
-    body     = (request.form.get("Body") or "").strip()
+    """
+    Twilio -> Smartie -> Twilio
+    Expects x-www-form-urlencoded from Twilio's WhatsApp Sandbox/Number.
+    """
+    try:
+        # 1) Read Twilio form fields safely
+        from_num = (request.form.get("From") or "").replace("whatsapp:", "").strip()
+        body     = (request.form.get("Body") or "").strip()
 
-    # Reuse the same Smartie brain
-    user_id  = f"wa:{from_num}"
-    result   = route_message(user_id, body)
+        if not from_num:
+            # Bad payload from source; reply 400 but don't crash
+            return jsonify({"error": "missing From"}), 400
 
-    # Reply via WhatsApp
-    send_wa(from_num, result["reply"])
-    return ("", 204)
+        # 2) Route through Smartie brain
+        user_id = f"wa:{from_num}"
+        result  = route_message(user_id, body) or {}
+        reply_text = result.get("reply", "Sorry — I didn’t quite catch that.")
 
+        # 3) Send the reply back over WhatsApp (fire-and-forget)
+        try:
+            send_wa(from_num, reply_text)
+        except Exception:
+            # Log but still return 200/204 so Twilio doesn’t retry forever
+            traceback.print_exc()
+
+        # 4) MUST return a response to Twilio quickly (2xx)
+        # 204 = No Content (OK)
+        return ("", 204)
+
+    except Exception as e:
+        # Safety net: never let the endpoint crash
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 # ==================================================
 # Web JSON endpoint (/smartie)
