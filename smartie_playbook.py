@@ -551,7 +551,12 @@ def compose_reply(pillar_key: str, user_line: str = "") -> str:
             TONE["reinforce_8020"][0],
             f"(Pillar: {label})",
         ])
-def propose_smarts_goal(pillar_key: str, idx: int = 0, duration: str = "the next 2 weeks") -> dict:
+def propose_smarts_goal(
+    pillar_key: str,
+    user_line: str = "",         
+    idx: int = 0,
+    duration: str = "the next 2 weeks",
+) -> dict:
     """
     Build a SMARTS-shaped goal suggestion from the pillar library.
     Returns a dict with both the goal text and a friendly offer line.
