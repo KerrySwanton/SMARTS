@@ -414,7 +414,7 @@ def route_message(user_id: str, text: str) -> dict:
 
     # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
     sd = style_directive(text)
-    response = client.chat_completions.create(  # or client.chat.completions.create if that's what your SDK uses
+    response = client.chat.completions.create( 
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SMARTIE_SYSTEM_PROMPT},
