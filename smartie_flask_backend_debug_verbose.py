@@ -236,28 +236,46 @@ def route_message(user_id: str, text: str) -> dict:
     if bl is not None:
         return bl
 
-    # --- 4) Pillar advice (direct keywords → playbook) ---
+    # ---- 4) Pillar advice (direct keywords → playbook) ----
+
+    # Environment & Structure
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
         return {"reply": compose_reply("environment", text)}
 
+    # Nutrition & Gut Health  (with special nutrition sub-branches)
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
-    # special nutrition sub-branches
-    if any(k in lower for k in NUTRITION_RULES_TRIGGERS):
-        return {"reply": nutrition_rules_answer()}
-    if any(k in lower for k in FOODS_TRIGGERS):
-        return {"reply": nutrition_foods_answer()}
-    return {"reply": compose_reply("nutrition", text)}
-    
+        # 4a) Nutrition rules (SMARTS / eity20 guidance)
+        if any(k in lower for k in NUTRITION_RULES_TRIGGERS):
+            return {"reply": nutrition_rules_answer()}
+
+        # 4b) Food lists / 80–20 foods
+        if any(k in lower for k in FOODS_TRIGGERS):
+            return {"reply": nutrition_foods_answer()}
+
+        # 4c) General nutrition coaching (playbook)
+            return {"reply": compose_reply("nutrition", text)}
+
+    # Sleep
     if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
         return {"reply": compose_reply("sleep", text)}
+
+    # Exercise & Movement
     if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
-        return {"reply": compose_reply("movement", text)}
+        return {"reply": compose_reply("exercise", text)}
+
+    # Stress Management
     if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
         return {"reply": compose_reply("stress", text)}
+
+    # Thought Patterns
     if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
         return {"reply": compose_reply("thoughts", text)}
+
+    # Emotional Regulation
     if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
         return {"reply": compose_reply("emotions", text)}
+
+    # Social Connection
     if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
         return {"reply": compose_reply("social", text)}
 
