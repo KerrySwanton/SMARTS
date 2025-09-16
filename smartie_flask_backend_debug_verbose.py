@@ -238,7 +238,7 @@ def route_message(user_id: str, text: str) -> dict:
 
     # --- 4) Pillar advice (direct keywords → playbook) ---
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
-    return {"reply": compose_reply("environment", text)}
+        return {"reply": compose_reply("environment", text)}
 
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
     # special nutrition sub-branches
