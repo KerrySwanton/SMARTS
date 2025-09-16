@@ -238,16 +238,16 @@ def route_message(user_id: str, text: str) -> dict:
 
     # --- 4) Pillar advice (direct keywords → playbook) ---
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
-        return {"reply": compose_reply("environment", text)}
+    return {"reply": compose_reply("environment", text)}
+
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
-    # If they ask for rules/plate/routine, serve the rules block
+    # special nutrition sub-branches
     if any(k in lower for k in NUTRITION_RULES_TRIGGERS):
         return {"reply": nutrition_rules_answer()}
-    # If they ask for concrete foods, serve examples
     if any(k in lower for k in FOODS_TRIGGERS):
         return {"reply": nutrition_foods_answer()}
-    # Otherwise standard nutrition coaching reply
     return {"reply": compose_reply("nutrition", text)}
+    
     if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
         return {"reply": compose_reply("sleep", text)}
     if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
