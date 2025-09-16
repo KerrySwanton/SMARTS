@@ -224,6 +224,86 @@ def nutrition_foods_answer(user_line: str) -> str:
     lines.append(EITY20_TAGLINE)
     return "\n".join(lines)
 
+# --------------------------------------------------
+# Nutrition rules (SMARTS + eity20 + plate + routine)
+# --------------------------------------------------
+
+NUTRITION_RULES_TRIGGERS = {
+    "nutrition rules","rules","guidelines","principles","smart rules","smarts rules",
+    "eity20 nutrition","balanced eating","portion","plate","lunch box","bento","bottle",
+    "regular meals","meal routine","meal timings","timeline","how often should i eat",
+}
+
+NUTRITION_RULES_SMARTS = [
+    "S – **Sustainable**: small, ongoing shifts (e.g., swap sugary snacks for berries, add oily fish once a week).",
+    "M – **Mindful mindset**: notice how foods make you feel; reset without judgment.",
+    "A – **Aligned**: eat in a way that fits your values/culture/needs (e.g., plant-forward, anti-inflammatory).",
+    "R – **Realistic**: simple swaps (wholegrain bread for white, water for energy drinks, +1 portion of greens).",
+    "T – **Train your brain**: 80% consistency beats perfection; build reliable habits.",
+    "S – **Speak up**: tell people you’re focusing on eating for your health.",
+]
+
+NUTRITION_RULES_PROGRAM = [
+    "Follow the **eity20 nutrition programme**:",
+    "• **80%**: mostly **starchy carbohydrates**, **protein**, and **healthy unsaturated fat**.",
+    "• **20%**: more indulgent/less nutritious foods for flexibility.",
+    "Why: steadier blood sugar, long-lasting energy, better focus & mood, improved cognitive function — without being restrictive.",
+]
+
+NUTRITION_RULES_PLATE = [
+    "Use the **portion plate / lunch box / bottle** method:",
+    "• **½** fruit & vegetables/salad",
+    "• **¼** protein",
+    "• **¼** starchy carbohydrates",
+    "Healthy fats are usually in the protein portion (meat/fish, nuts/seeds, dairy/alternatives).",
+]
+
+NUTRITION_RULES_ROUTINE = [
+    "Eat **regular meals** and keep a simple routine (e.g., 5 times/day):",
+    "• Breakfast • Mid-morning snack • Lunch • Mid-afternoon snack • Supper",
+    "This helps maintain energy and stabilise blood sugars. (Use the eity20 timeline to pick times.)",
+]
+
+def nutrition_rules_answer() -> str:
+    lines = []
+    lines.append("Here are your **eity20 nutrition guidelines**:")
+    lines.append("")
+    lines.append("**Use SMARTS with food & drink**")
+    lines += [f"- {x}" for x in NUTRITION_RULES_SMARTS]
+    lines.append("")
+    lines += NUTRITION_RULES_PROGRAM
+    lines.append("")
+    lines += NUTRITION_RULES_PLATE
+    lines.append("")
+    lines += NUTRITION_RULES_ROUTINE
+    lines.append("")
+    lines.append("Reply **foods** to see example items from the 80/20 lists.")
+    lines.append("(Pillar: Nutrition & Gut Health — aim for 80% consistency, 20% flexibility, 100% human.)")
+    return "\n".join(lines)
+
+# Users can ask for concrete examples from the 80/20 lists
+FOODS_TRIGGERS = {"foods", "food list", "food examples", "examples of foods", "what foods"}
+
+def nutrition_foods_answer() -> str:
+    """Compact examples; safe even if your NUTRITION_80/20 dicts change."""
+    return "\n".join([
+        "Here are some **eity20 food examples**:",
+        "",
+        "**80% foundation**",
+        "• Whole grains: brown rice, oats, quinoa, barley, rye, whole-wheat pasta",
+        "• Starchy carbs: whole-grain bread/crackers, couscous, noodles",
+        "• Fruit: berries, bananas, apples, citrus, mango, kiwifruit",
+        "• Vegetables: potatoes (white/sweet), carrots, peas, corn, squash, leafy greens",
+        "• Protein: poultry, fish, eggs, yogurt/cheese, beans, lentils, tofu/soya",
+        "• Healthy fats: olive/rapeseed oil, nuts (almonds, walnuts), seeds (chia, flax), oily fish",
+        "",
+        "**20% flexibility**",
+        "• Processed/fast foods (pizza, burgers, pastries), crisps, sweets, sugary drinks,",
+        "  alcohol in moderation; salty convenience foods (processed meats, ready meals).",
+        "",
+        "(Use the plate method: ½ veg/fruit, ¼ protein, ¼ starchy carbs.)"
+    ])
+
 # Short “voice” elements Smartie can stitch together
 TONE = {
     "warm_ack": [
