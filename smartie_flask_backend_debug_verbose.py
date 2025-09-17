@@ -476,12 +476,12 @@ def route_message(user_id: str, text: str) -> dict:
         return {"reply": compose_reply(first_pillar, text) + tag}
 
     if lower == "baseline":
-    # (optional) clear the saved concern so baseline can take over
-    LAST_CONCERN.pop(user_id, None)
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        LAST_SEEN[user_id] = now
-        return bl
+        # (optional) clear the saved concern so baseline can take over
+        LAST_CONCERN.pop(user_id, None)
+        bl = handle_baseline(user_id, text)
+        if bl is not None:
+            LAST_SEEN[user_id] = now
+            return bl
 
     # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
