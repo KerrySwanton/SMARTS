@@ -185,9 +185,6 @@ def ensure_eity20_reminder(text: str) -> str:
         return t + "\n\n" + EITY20_REMINDER
     return t + "\n\n" + EITY20_REMINDER
 
-SMARTIE_SYSTEM_PROMPT = """
-You are Smartie, the eity20 coach...
-
 # 5) System prompt for the fallback
 SMARTIE_SYSTEM_PROMPT = """
 You are Smartie, the eity20 coach: warm, brief, and practical. You help people make small, sustainable changes.
