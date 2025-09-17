@@ -359,17 +359,44 @@ def route_message(user_id: str, text: str) -> dict:
     if stack:
         # Try to name the concern for a more human line
         concern_label = None
-        for aliases, _cur in [
-            (("cholesterol","hyperlipid","dyslipid"), stack),
-            (("binge eating","binge-eating","emotional eating","comfort eating","bed"), stack),
-            (("blood pressure","hypertension"), stack),
-            (("ibs","irritable bowel"), stack),
-            (("anxiety","gad"), stack),
-            (("low mood","depression"), stack),
+        for aliases, human in [
+            # --- Physical Health ---
+            (("cholesterol","hyperlipid","dyslipid"), "high cholesterol"),
+            (("overweight","obese","weight","weight loss","weight-loss",
+              "glp-1","ozempic","wegovy","mounjaro","tirzepatide","semaglutide"), "weight/obesity (incl. GLP-1 use)"),
+            (("blood sugar","type 2 diabetes","t2d","pre-diabetes","prediabetes","insulin resistance"), "blood sugar / type 2 diabetes"),
+            (("menopause","perimenopause","peri-menopause","postmenopause", post-menopause"), "menopause / age-related changes"),
+            (("hypertension","high blood pressure","blood pressure"), "high blood pressure"),
+            (("osteoarthritis","arthritis","joint pain"), "joint problems"),
+            (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"), "cardiovascular disease"),
+            (("copd","asthma","sleep apnoea","sleep apnea","breathing difficulties"), "breathing difficulties"),
+            (("liver disease","fatty liver","alcohol-related liver disease","arld","nafld"), "liver disease"),
+            (("kidney disease","ckd","chronic kidney"), "kidney disease"),
+            (("osteopenia","osteoporosis","bone health"), "bone health"),
+            (("metabolic syndrome","high triglycerides","low hdl","large waist","waist circumference"), "metabolic syndrome"),
+            (("autoimmune","type 1 diabetes","graves","rheumatoid arthritis","psoriasis","vasculitis","multiple sclerosis","ms"), "autoimmune disorder"),
+
+            # --- Mental Health (ICD-11) ---
+            (("low mood","depression","bipolar","seasonal affective","sad"), "mood/affective disorder"),
+            (("anxiety","gad","generalised anxiety","generalized anxiety","mild anxiety"), "anxiety disorder"),
+            (("stress","ptsd","post-traumatic stress","trauma"), "stress-related disorder"),
+            (("emotional dysregulation","binge eating","binge-eating","emotional eating","comfort eating","feeding disorder"), "emotional/eating disorder"),
+            (("adhd","asd","autism","neurodevelopmental"), "neurodevelopmental disorder"),
+            (("addiction","gaming","television","tv","screen time"), "addictive behaviour"),
+            (("sleep-wake","circadian","insomnia","disordered sleep","sleep disorder","sleep apnoea","sleep apnea"), "sleep-wake disorder"),
+            (("cognitive decline","mci","neurocognitive","dementia","alzheimer"), "neurocognitive disorder"),
+
+            # --- Gut Health ---
+            (("ibs","irritable bowel"), "irritable bowel syndrome"),
+            (("bloating","constipation","diarrhoea","diarrhea","abdominal pain","functional gi","gut dysbiosis"), "functional gastrointestinal problem"),
+            (("leaky gut","intestinal permeability","crohn","ulcerative colitis","ibd","coeliac","celiac","autoimmune gastritis"), "leaky gut / IBD"),
+            (("food allergy","food intolerance","gluten","dairy","wheat","histamine","mold","mould"), "food allergy or intolerance"),
+            (("gerd","acid reflux","reflux"), "acid reflux / GERD"),
         ]:
             if any(a in lower for a in aliases):
-                concern_label = next(a for a in aliases if a in lower)
+                concern_label = human
                 break
+
         concern_label = concern_label or "health concern"
 
         reply = make_concern_intro_reply(concern_label, stack)
