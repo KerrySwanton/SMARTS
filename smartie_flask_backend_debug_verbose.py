@@ -292,7 +292,7 @@ def make_concern_intro_reply(concern_label: str, stack: list[str]) -> str:
         f"{leading_q}\n\n"
         f"{choice}"
     )
-
+    
 # ==================================================
 # Unified router
 # ==================================================
@@ -300,7 +300,7 @@ def route_message(user_id: str, text: str) -> dict:
     lower = (text or "").strip().lower()
     tag = f"\n{EITY20_TAGLINE}" if 'EITY20_TAGLINE' in globals() else ""
 
-        # --- 0) Greeting logic (first-time + returning after 24h) ---
+    # --- 0) Greeting logic (first-time + returning after 24h) ---
     now = datetime.now(timezone.utc)
     last = LAST_SEEN.get(user_id)
 
@@ -316,25 +316,17 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         return {"reply": "Hello, welcome back. How are you today?"}
 
-first_time = user_id not in LAST_SEEN
-if first_time:
-    LAST_SEEN[user_id] = datetime.now(timezone.utc)
-    return {"reply": "Hello, I’m Smartie — your supportive eity20 friend. How can I help you today?"}
-
-# Returning user, but not within the last ~12 hours → friendly welcome back
-if datetime.now(timezone.utc) - LAST_SEEN[user_id] > timedelta(hours=12):
-    LAST_SEEN[user_id] = datetime.now(timezone.utc)
-    return {"reply": "Hello, welcome back. How are you today?"}
-    
     # --- 1) Safety first ---
     s = safety_check_and_reply(text)
     if s:
+        LAST_SEEN[user_id] = now
         return {"reply": s}
 
     # --- 2) Quick commands: tracking ---
     if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
         _ = log_done(user_id=user_id)
         g = get_goal(user_id)
+        LAST_SEEN[user_id] = now
         if g:
             return {"reply": (
                 "Nice work — logged for today! ✅\n"
@@ -344,10 +336,12 @@ if datetime.now(timezone.utc) - LAST_SEEN[user_id] > timedelta(hours=12):
         return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
 
     if lower in {"progress", "summary", "stats"}:
+        LAST_SEEN[user_id] = now
         return {"reply": tracker_summary(user_id) + tag}
 
     if lower in {"history", "recent"}:
         logs = last_n_logs(user_id, 5)
+        LAST_SEEN[user_id] = now
         if not logs:
             return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today." + tag}
         lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
@@ -355,117 +349,114 @@ if datetime.now(timezone.utc) - LAST_SEEN[user_id] > timedelta(hours=12):
 
     if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
         g = get_goal(user_id)
+        LAST_SEEN[user_id] = now
         if g:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
-stack = detect_priority_stack(text)
-if stack:
-    # Try to name the concern for a more human line
-    concern_label = None
-    lower = (text or "").lower()
-    for aliases, curated in [
-        (("cholesterol","hyperlipid","dyslipid"), stack),
-        (("binge eating","binge-eating","emotional eating","comfort eating","bed"), stack),
-        (("blood pressure","hypertension"), stack),
-        (("ibs","irritable bowel"), stack),
-        (("anxiety","gad"), stack),
-        (("low mood","depression"), stack),
-    ]:
-        if any(a in lower for a in aliases):
-            concern_label = next(a for a in aliases if a in lower)
-            break
-    concern_label = concern_label or "health concern"
+    stack = detect_priority_stack(text)
+    if stack:
+        # Try to name the concern for a more human line
+        concern_label = None
+        for aliases, _cur in [
+            (("cholesterol","hyperlipid","dyslipid"), stack),
+            (("binge eating","binge-eating","emotional eating","comfort eating","bed"), stack),
+            (("blood pressure","hypertension"), stack),
+            (("ibs","irritable bowel"), stack),
+            (("anxiety","gad"), stack),
+            (("low mood","depression"), stack),
+        ]:
+            if any(a in lower for a in aliases):
+                concern_label = next(a for a in aliases if a in lower)
+                break
+        concern_label = concern_label or "health concern"
 
-    reply = make_concern_intro_reply(concern_label, stack)
-    LAST_SEEN[user_id] = datetime.now(timezone.utc)
-    return {"reply": reply + tag}
+        reply = make_concern_intro_reply(concern_label, stack)
+        LAST_SEEN[user_id] = now
+        return {"reply": reply + tag}
+
+    # If the user chooses after a concern-first intro
+    if lower == "advice":
+        stk = detect_priority_stack(text)
+        LAST_SEEN[user_id] = now
+        return {"reply": compose_reply((stk[0] if stk else "nutrition"), text) + tag}
+
+    if lower == "baseline":
+        bl = handle_baseline(user_id, text)
+        if bl is not None:
+            LAST_SEEN[user_id] = now
+            return bl
 
     # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
         bl = handle_baseline(user_id, text)   # asks concern → 8 ratings → suggest pillar → set goal
         if bl is not None:
+            LAST_SEEN[user_id] = now
             return bl
 
     # Continue baseline if mid-session
     bl = handle_baseline(user_id, text)
     if bl is not None:
+        LAST_SEEN[user_id] = now
         return bl
 
-# If the user chooses advice after a concern-first intro, start with the first pillar in the detected stack
-if lower == "advice":
-    stk = detect_priority_stack(text)  # re-check context; optional if you persist last concern
-    if not stk:
-        # fallback: default to nutrition tips as a reasonable starting point
-        LAST_SEEN[user_id] = datetime.now(timezone.utc)
-        return {"reply": compose_reply("nutrition", text) + tag}
-    LAST_SEEN[user_id] = datetime.now(timezone.utc)
-    return {"reply": compose_reply(stk[0], text) + tag}
-
-if lower == "baseline":
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        LAST_SEEN[user_id] = datetime.now(timezone.utc)
-        return bl
-    
     # --- 5) Pillar advice (direct keywords → playbook) ---
-
-    # Environment & Structure
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("environment", text)}
 
-    # Nutrition & Gut Health  (with special nutrition sub-branches)
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
-        # 5a) Nutrition rules (SMARTS / eity20 guidance)
         if any(k in lower for k in NUTRITION_RULES_TRIGGERS):
+            LAST_SEEN[user_id] = now
             return {"reply": nutrition_rules_answer()}
-        # 5b) Food lists / 80–20 foods
         if any(k in lower for k in FOODS_TRIGGERS):
+            LAST_SEEN[user_id] = now
             return {"reply": nutrition_foods_answer()}
-        # 5c) General nutrition coaching (playbook)  ← fixed indent (sibling of 5a/5b)
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("nutrition", text)}
 
-    # Sleep
     if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("sleep", text)}
 
-    # Exercise & Movement
     if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("movement", text)}
 
-    # Stress Management
     if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("stress", text)}
 
-    # Thought Patterns
     if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("thoughts", text)}
 
-    # Emotional Regulation
     if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("emotions", text)}
 
-    # Social Connection
     if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply("social", text)}
 
     # --- 6) Intent/concern mapper → pillar → playbook (support mode) ---
     pillar = map_intent_to_pillar(text)
     if pillar:
+        LAST_SEEN[user_id] = now
         return {"reply": compose_reply(pillar, text)}
 
-    # If user stated a clear concern, suggest pillars explicitly
     pillars = suggest_pillars_for_concern(text)
     if pillars:
         labels = [PILLARS[p]["label"] for p in pillars if p in PILLARS]
         suggestion = ", ".join(labels[:3]) or ", ".join(pillars[:3])
+        LAST_SEEN[user_id] = now
         return {"reply": (
             f"Thanks — that helps focus the right areas. These pillars usually help most: {suggestion}.\n"
             f"Want to do a 1-minute baseline and pick one to start?\n{EITY20_TAGLINE}"
         )}
 
-        # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
+    # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
     sd = style_directive(text)
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -476,15 +467,8 @@ if lower == "baseline":
         max_tokens=420,
         temperature=0.75,
     )
-
-    # build reply from OpenAI
-    reply = resp.choices[0].message.content.strip() + tag
-
-    # update last-seen time for this user
-    LAST_SEEN[user_id] = datetime.now(timezone.utc)
-
-    # return response
-    return {"reply": reply}
+    LAST_SEEN[user_id] = now
+    return {"reply": resp.choices[0].message.content.strip() + tag}
 
 # ==================================================
 # Flask app + OpenAI client
