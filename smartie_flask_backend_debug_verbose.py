@@ -377,25 +377,46 @@ def leading_question_for(key: str) -> str:
         key, f"What do you think is contributing most to your {human_label_for(key)} right now?"
     )
 
-def make_concern_intro_reply(concern_key: str, stack: list[str]) -> str:
+def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str | None = None) -> str:
+    """
+    Warm intro for priority concerns:
+    - 1 empathetic line
+    - brief eity20 framing
+    - show best starting pillar (+ next pillars)
+    - 1 tailored leading question
+    - clear choice: advice vs baseline
+    """
+    # human labels + pillar labels
+    concern_label = human_label_for(concern_key)
     label_map = {k: v["label"] for k, v in PILLARS.items()}
     first = stack[0]
     first_label = label_map.get(first, first.title())
     rest_labels = [label_map.get(p, p.title()) for p in stack[1:]]
-    rest_part = f" Next up we can explore: {', '.join(rest_labels)}." if rest_labels else ""
+    rest_part = f" Next up: {', '.join(rest_labels)}." if rest_labels else ""
 
-    concern_label = human_label_for(concern_key)             # pretty name
-    leading_q = leading_question_for(concern_key)            # tailored question
+    # 1) Empathetic opener (short, human, mirrors their concern)
+    opener = f"I hear you — {concern_label} can feel tough. Let’s keep this simple and doable."
 
+    # 2) Micro eity20 framing (one line)
+    framing = ("We’ll use eity20’s pillars to make small changes with big impact "
+               "(80% consistent, 20% flexible — 100% human).")
+
+    # 3) Leading question (tailored)
+    leading_q = leading_question_for(concern_key)
+
+    # 4) Clear choice
     choice = (
         "Would you like me to:\n"
         "• **Share focused advice** for today (type: *advice*)\n"
         "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
     )
+
     return (
-        f"{EITY20_INTRO}\n\n"
-        f"For *{concern_label}*, the most helpful starting pillar is **{first_label}**."
-        f"{rest_part}\n\n{leading_q}\n\n{choice}"
+        f"{opener}\n\n"
+        f"{framing}\n\n"
+        f"For *{concern_label}*, the best place to start is **{first_label}**.{rest_part}\n\n"
+        f"{leading_q}\n\n"
+        f"{choice}"
     )
 
 # ==================================================
@@ -479,12 +500,11 @@ def route_message(user_id: str, text: str) -> dict:
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
     stack = detect_priority_stack(text)
     if stack:
-        key = match_concern_key(text) or "cholesterol"   # or "health concern"
-        reply = make_concern_intro_reply(key, stack)
+        key = match_concern_key(text) or "blood sugar"  # sensible default
+        reply = make_concern_intro_reply(key, stack, user_text=text)
 
         # remember this so the next "advice" message knows what to use
         LAST_CONCERN[user_id] = {"key": key, "stack": stack}
-
         LAST_SEEN[user_id] = now
         return {"reply": reply + tag}
     
