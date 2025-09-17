@@ -260,6 +260,39 @@ def detect_priority_stack(text: str) -> list[str]:
 
     return []
 
+# Short, consistent eity20 intro used on first contact + concern-first replies
+EITY20_INTRO = (
+    "I’m Smartie — your supportive eity20 friend. "
+    "eity20 links physical, mental, and gut health through 8 pillars "
+    "(Environment, Nutrition, Sleep, Movement, Stress, Thoughts, Emotions, Social) "
+    "and SMARTS change: Sustainable, Mindful mindset, Aligned, Realistic, "
+    "Train your brain, Speak up."
+)
+
+def make_concern_intro_reply(concern_label: str, stack: list[str]) -> str:
+    """Warm intro + show the most helpful pillars for this concern + a leading question."""
+    # nice human label for the first pillar
+    first = stack[0]
+    label_map = {k: v["label"] for k, v in PILLARS.items()}
+    first_label = label_map.get(first, first.title())
+    rest_labels = [label_map.get(p, p.title()) for p in stack[1:]]
+    rest_part = f" Next up we can explore: {', '.join(rest_labels)}." if rest_labels else ""
+
+    leading_q = f"What do you think is contributing most to your {concern_label} right now?"
+    choice = (
+        "Would you like me to:\n"
+        "• **Share focused advice** for today (type: *advice*)\n"
+        "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
+    )
+
+    return (
+        f"{EITY20_INTRO}\n\n"
+        f"For *{concern_label}*, the most helpful starting pillar is **{first_label}**."
+        f"{rest_part}\n\n"
+        f"{leading_q}\n\n"
+        f"{choice}"
+    )
+
 # ==================================================
 # Unified router
 # ==================================================
@@ -282,6 +315,16 @@ def route_message(user_id: str, text: str) -> dict:
     if long_gap or said_hello:
         LAST_SEEN[user_id] = now
         return {"reply": "Hello, welcome back. How are you today?"}
+
+first_time = user_id not in LAST_SEEN
+if first_time:
+    LAST_SEEN[user_id] = datetime.now(timezone.utc)
+    return {"reply": "Hello, I’m Smartie — your supportive eity20 friend. How can I help you today?"}
+
+# Returning user, but not within the last ~12 hours → friendly welcome back
+if datetime.now(timezone.utc) - LAST_SEEN[user_id] > timedelta(hours=12):
+    LAST_SEEN[user_id] = datetime.now(timezone.utc)
+    return {"reply": "Hello, welcome back. How are you today?"}
     
     # --- 1) Safety first ---
     s = safety_check_and_reply(text)
@@ -316,16 +359,28 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # --- 3) Concern-first: skip/short-circuit baseline when a priority concern is mentioned ---
-    stack = detect_priority_stack(text)  # make sure this helper is defined/imported
-    if stack:
-        first = stack[0]
-        reply = compose_reply(first, text)  # give immediate, pillar-specific advice
-        if len(stack) > 1:
-            rest_labels = [PILLARS[p]["label"] for p in stack[1:] if p in PILLARS]
-            if rest_labels:
-                reply += "\n\nNext we can explore: " + ", ".join(rest_labels) + "."
-        return {"reply": reply + tag}
+    # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
+stack = detect_priority_stack(text)
+if stack:
+    # Try to name the concern for a more human line
+    concern_label = None
+    lower = (text or "").lower()
+    for aliases, curated in [
+        (("cholesterol","hyperlipid","dyslipid"), stack),
+        (("binge eating","binge-eating","emotional eating","comfort eating","bed"), stack),
+        (("blood pressure","hypertension"), stack),
+        (("ibs","irritable bowel"), stack),
+        (("anxiety","gad"), stack),
+        (("low mood","depression"), stack),
+    ]:
+        if any(a in lower for a in aliases):
+            concern_label = next(a for a in aliases if a in lower)
+            break
+    concern_label = concern_label or "health concern"
+
+    reply = make_concern_intro_reply(concern_label, stack)
+    LAST_SEEN[user_id] = datetime.now(timezone.utc)
+    return {"reply": reply + tag}
 
     # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
@@ -338,6 +393,22 @@ def route_message(user_id: str, text: str) -> dict:
     if bl is not None:
         return bl
 
+# If the user chooses advice after a concern-first intro, start with the first pillar in the detected stack
+if lower == "advice":
+    stk = detect_priority_stack(text)  # re-check context; optional if you persist last concern
+    if not stk:
+        # fallback: default to nutrition tips as a reasonable starting point
+        LAST_SEEN[user_id] = datetime.now(timezone.utc)
+        return {"reply": compose_reply("nutrition", text) + tag}
+    LAST_SEEN[user_id] = datetime.now(timezone.utc)
+    return {"reply": compose_reply(stk[0], text) + tag}
+
+if lower == "baseline":
+    bl = handle_baseline(user_id, text)
+    if bl is not None:
+        LAST_SEEN[user_id] = datetime.now(timezone.utc)
+        return bl
+    
     # --- 5) Pillar advice (direct keywords → playbook) ---
 
     # Environment & Structure
