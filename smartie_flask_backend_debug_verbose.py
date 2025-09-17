@@ -365,7 +365,7 @@ def route_message(user_id: str, text: str) -> dict:
             (("overweight","obese","weight","weight loss","weight-loss",
               "glp-1","ozempic","wegovy","mounjaro","tirzepatide","semaglutide"), "weight/obesity (incl. GLP-1 use)"),
             (("blood sugar","type 2 diabetes","t2d","pre-diabetes","prediabetes","insulin resistance"), "blood sugar / type 2 diabetes"),
-            (("menopause","perimenopause","peri-menopause","postmenopause", post-menopause"), "menopause / age-related changes"),
+            (("menopause","perimenopause","peri-menopause","postmenopause","post-menopause"), "menopause / age-related changes"),
             (("hypertension","high blood pressure","blood pressure"), "high blood pressure"),
             (("osteoarthritis","arthritis","joint pain"), "joint problems"),
             (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"), "cardiovascular disease"),
