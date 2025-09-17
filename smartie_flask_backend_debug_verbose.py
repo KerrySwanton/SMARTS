@@ -432,17 +432,17 @@ def route_message(user_id: str, text: str) -> dict:
 
     # First ever message from this user
     if last is None:
-    LAST_SEEN[user_id] = now
-    intro = (
-        "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?\n\n"
-        "Here are a few ways we can get started:\n"
-        "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
-        "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"
-        "• Type **advice** for general tips\n"
-        "• Type **baseline** for a 1-minute assessment\n\n"
-        f"{EITY20_TAGLINE}"
-    )
-    return {"reply": intro}
+        LAST_SEEN[user_id] = now
+        intro = (
+            "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?\n\n"
+            "Here are a few ways we can begin your health & wellbeing journey:\n"
+            "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
+            "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"                
+            "• Type **advice** for general tips\n"
+            "• Type **baseline** for a 1-minute assessment\n\n"
+            f"{EITY20_TAGLINE}"
+        )
+        return {"reply": intro}
 
     # Returning user: greet if it's been 24h since last message OR if they explicitly say hi
     long_gap = (now - last) >= timedelta(hours=24)
