@@ -434,8 +434,9 @@ def route_message(user_id: str, text: str) -> dict:
     if last is None:
         LAST_SEEN[user_id] = now
         intro = (
-            "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?\n\n"
-            "Here are a few ways we can begin your health & wellbeing journey:\n"
+            "Hello, I'm Smartie. I am here to help you stay eity20 — "
+            "80% consistent, 20% flexible, 100% human.
+            "How would you like me to support your health & wellbeing journey?:\n\n"
             "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
             "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"                
             "• Type **advice** for general tips\n"
