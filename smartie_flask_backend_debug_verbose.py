@@ -24,6 +24,7 @@ PENDING_GOALS: dict[str, dict] = {}
 CONCERN_CHOICES: dict[str, dict] = {}
 # Last time we saw each user (in-memory; resets on restart unless you persist it)
 LAST_SEEN: dict[str, datetime] = {}
+LAST_CONCERN: dict[str, dict] = {}  # { user_id: {"key": str, "stack": [pillars]} }
 
 # ==================================================
 # Safety-first + concern mapping + intent helpers
@@ -269,93 +270,129 @@ EITY20_INTRO = (
     "Train your brain, Speak up."
 )
 
-# Tailored leading questions by concern label (used right after the intro)
-LEADING_QUESTIONS = {
-    # --- Physical health ---
-    "high cholesterol":
-        "What do you think has driven your cholesterol up lately — food choices, weight, family history, or something else?",
-    "weight/obesity (incl. GLP-1 use)":
-        "What makes losing weight so tough right now — hunger, evening snacking, routine, or energy for movement?",
-    "blood sugar / type 2 diabetes":
-        "What do you think most affects your blood sugar — meal timing, carb type/size, activity, or sleep/stress?",
-    "menopause / age-related changes":
-        "Which symptom bothers you most — sleep, hot flushes, mood, or weight changes?",
-    "high blood pressure":
-        "When is your blood pressure highest — stressful days, poor sleep, salty foods, or inactivity?",
-    "joint problems":
-        "Which joints limit you most and when — mornings, after sitting, or with activity?",
-    "cardiovascular disease":
-        "What feels most important to work on first — movement, food quality, blood pressure, or stress?",
-    "breathing difficulties":
-        "What tends to trigger symptoms — exertion, allergens, sleep position, or stress?",
-    "liver disease":
-        "Which area do you want to focus on — alcohol, weight, balanced meals, or daily movement?",
-    "kidney disease":
-        "What’s your current priority — blood pressure control, blood sugars, protein balance, or salt intake?",
-    "bone health":
-        "Which change feels most doable — strength exercises, calcium/protein at meals, or vitamin D checks?",
-    "metabolic syndrome":
-        "Which piece feels most moveable first — waist size, triglycerides, fasting glucose, or blood pressure?",
-    "autoimmune disorder":
-        "What tends to cause a flare up — stress, poor sleep, infections, or specific foods?",
-
-    # --- Mental health (ICD-11-ish) ---
-    "mood/affective disorder":
-        "What shifts your mood most — sleep quality, activity, social contact, or self-talk?",
-    "anxiety disorder":
-        "When does anxiety spike — mornings, social settings, at night, or after caffeine/sugar?",
-    "stress-related disorder":
-        "What’s your main stress load — work, caring, finances, health, or something else?",
-    "emotional/eating disorder":
-        "What’s the usual pattern before eating episodes — strong feelings, tiredness, being unprepared, or restrictive rules?",
-    "neurodevelopmental disorder":
-        "What do you think will help — routines, sleep, food planning, or focus breaks?",
-    "addictive behaviour":
-        "What’s the main trigger — boredom, late-night routine, stress, or social cues?",
-    "sleep-wake disorder":
-        "Which part is hardest — getting to sleep, staying asleep, wake time, or caffeine timing?",
-    "neurocognitive disorder":
-        "Which daily function needs the most help — remembering tasks, planning, or staying focused?",
-
-    # --- Gut health ---
-    "irritable bowel syndrome":
-        "What most sets symptoms off — certain foods, stress spikes, poor sleep, or irregular meals?",
-    "functional gastrointestinal problem":
-        "What’s most noticeable — bloating, pain, constipation, diarrhoea, or post-meal fatigue?",
-    "leaky gut / IBD":
-        "What tends to precede flare ups — stress, infections, specific foods, or inconsistent meds?",
-    "food allergy or intolerance":
-        "Which foods are you most suspicious of right now?",
-    "acid reflux / GERD":
-        "When is reflux worst — late meals, lying down after eating, trigger foods, or larger portions?",
+# Human-readable labels for concerns (what we show to the user)
+HUMAN_LABELS = {
+    "cholesterol": "high cholesterol",
+    "weight": "weight / GLP-1 use",
+    "blood sugar": "type 2 diabetes / blood sugar",
+    "menopause": "menopause",
+    "blood pressure": "high blood pressure",
+    "joint": "joint pain / osteoarthritis",
+    "cvd": "heart rhythm / cardiovascular risk",
+    "breathing": "breathing & sleep (COPD / asthma / sleep apnoea)",
+    "liver": "liver health",
+    "kidney": "kidney health",
+    "bone": "bone health (osteopenia / osteoporosis)",
+    "metabolic": "metabolic syndrome",
+    "autoimmune": "autoimmune condition",
+    "low mood": "low mood / depression",
+    "anxiety": "anxiety",
+    "ptsd": "stress / PTSD",
+    "emotional eating": "emotional / binge eating",
+    "adhd": "ADHD",
+    "sleep": "sleep problems",
+    "cognitive": "thinking / memory",
+    "ibs": "IBS / gut symptoms",
+    "reflux": "acid reflux / GERD",
+    # fallback keys will be title-cased if not present
 }
 
-def make_concern_intro_reply(concern_label: str, stack: list[str]) -> str:
-    """Warm intro + show the most helpful pillars for this concern + a tailored question."""
-    first = stack[0]
+# Tailored leading questions by concern label (used right after the intro)
+LEADING_QUESTIONS = {
+    # Physical
+    "cholesterol": "What do you think has driven your cholesterol up lately — food choices, weight, family history, or something else?",
+    "weight": "What makes losing weight so tough right now — hunger, evening snacking, routine, or energy for movement?",
+    "blood sugar": "What do you think most affects your blood sugar — meal timing, carb type/size, activity, or sleep/stress?",
+    "menopause": "Which symptom bothers you most — sleep, hot flushes, mood, or weight changes?",
+    "blood pressure": "When is your blood pressure highest — stressful days, poor sleep, salty foods, or inactivity?",
+    "joint": "Which joints limit you most and when — mornings, after sitting, or with activity?",
+    "cvd": "What feels most important to work on first — movement, food quality, blood pressure, or stress?",
+    "breathing": "What tends to trigger symptoms — exertion, allergens, sleep position, or stress?",
+    "liver": "Which area do you want to focus on — alcohol, weight, balanced meals, or daily movement?",
+    "kidney": "What’s your current priority — blood pressure control, blood sugars, protein balance, or salt intake?",
+    "bone": "Which change feels most doable — strength exercises, calcium/protein at meals, or vitamin D checks?",
+    "metabolic": "Which piece feels most moveable first — waist size, triglycerides, fasting glucose, or blood pressure?",
+    "autoimmune": "What tends to cause a flare up — stress, poor sleep, infections, or specific foods?",
+
+    # Mental
+    "low mood": "What shifts your mood most — sleep quality, activity, social contact, or self-talk?",
+    "anxiety": "When does anxiety spike — mornings, social settings, at night, or after caffeine/sugar?",
+    "ptsd": "What’s your main stress load — work, caring, finances, health, or something else?",
+    "emotional eating": "What’s the usual pattern before eating episodes — strong feelings, tiredness, being unprepared, or restrictive rules?",
+    "adhd": "What do you think will help — routines, sleep, food planning, or focus breaks?",
+    "addiction": "What’s the main trigger — boredom, late-night routine, stress, or social cues?",
+    "sleep": "Which part is hardest — getting to sleep, staying asleep, wake time, or caffeine timing?",
+    "cognitive": "Which daily function needs the most help — remembering tasks, planning, or staying focused?",
+
+    # Gut
+    "ibs": "What most sets symptoms off — certain foods, stress spikes, poor sleep, or irregular meals?",
+    "functional gi": "What’s most noticeable — bloating, pain, constipation, diarrhoea, or post-meal fatigue?",
+    "autoimmune gi": "What tends to precede flare ups — stress, infections, specific foods, or inconsistent meds?",
+    "food intolerance": "Which foods are you most suspicious of right now?",
+    "reflux": "When is reflux worst — late meals, lying down after eating, trigger foods, or larger portions?",
+}
+
+# Map many user phrases to one canonical concern key
+CONCERN_ALIASES: list[tuple[tuple[str, ...], str]] = [
+    (("cholesterol","hyperlipid","dyslipid"), "cholesterol"),
+    (("overweight","obese","weight","weight loss","glp-1","ozempic","wegovy","mounjaro","tirzepatide","semaglutide"), "weight"),
+    (("type 2 diabetes","t2d","prediabetes","pre-diabetes","blood sugar","insulin resistance"), "blood sugar"),
+    (("hypertension","high blood pressure","blood pressure"), "blood pressure"),
+    (("menopause","perimenopause","peri-menopause"), "menopause"),
+    (("osteoarthritis","arthritis","joint pain"), "joint"),
+    (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"), "cvd"),
+    (("copd","asthma","sleep apnoea","sleep apnea","breathing difficulties"), "breathing"),
+    (("liver disease","nafld","fatty liver","arld"), "liver"),
+    (("ckd","kidney disease"), "kidney"),
+    (("osteopenia","osteoporosis","bone health"), "bone"),
+    (("metabolic syndrome","high triglycerides","low hdl","large waist","waist circumference"), "metabolic"),
+    (("autoimmune","ms","multiple sclerosis","graves","type 1 diabetes","rheumatoid arthritis","psoriasis","vasculitis"), "autoimmune"),
+    (("low mood","depression","bipolar","sad","seasonal affective"), "low mood"),
+    (("anxiety","gad","generalised anxiety","generalized anxiety"), "anxiety"),
+    (("ptsd","post-traumatic stress"), "ptsd"),
+    (("binge eating","binge-eating","emotional eating","comfort eating","eating disorder","bed"), "emotional eating"),
+    (("adhd","attention deficit","asd","autism","neurodevelopmental"), "adhd"),
+    (("sleep-wake","circadian","insomnia","sleep disorder"), "sleep"),
+    (("mci","cognitive decline","neurocognitive","dementia","alzheimer"), "cognitive"),
+    (("ibs","irritable bowel"), "ibs"),
+    (("reflux","gerd","acid reflux"), "reflux"),
+]
+
+def match_concern_key(text: str) -> str | None:
+    """Return the canonical concern key from user text, or None."""
+    t = (text or "").lower()
+    for aliases, key in CONCERN_ALIASES:
+        if any(a in t for a in aliases):
+            return key
+    return None
+
+def human_label_for(key: str) -> str:
+    return HUMAN_LABELS.get(key, key.title())
+
+def leading_question_for(key: str) -> str:
+    return LEADING_QUESTIONS.get(
+        key, f"What do you think is contributing most to your {human_label_for(key)} right now?"
+    )
+
+def make_concern_intro_reply(concern_key: str, stack: list[str]) -> str:
     label_map = {k: v["label"] for k, v in PILLARS.items()}
+    first = stack[0]
     first_label = label_map.get(first, first.title())
     rest_labels = [label_map.get(p, p.title()) for p in stack[1:]]
     rest_part = f" Next up we can explore: {', '.join(rest_labels)}." if rest_labels else ""
 
-    # pick a tailored question, fall back to a generic one
-    leading_q = LEADING_QUESTIONS.get(
-        concern_label,
-        f"What do you think is contributing most to your {concern_label} right now?"
-    )
+    concern_label = human_label_for(concern_key)             # pretty name
+    leading_q = leading_question_for(concern_key)            # tailored question
 
     choice = (
         "Would you like me to:\n"
         "• **Share focused advice** for today (type: *advice*)\n"
         "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
     )
-
     return (
         f"{EITY20_INTRO}\n\n"
         f"For *{concern_label}*, the most helpful starting pillar is **{first_label}**."
-        f"{rest_part}\n\n"
-        f"{leading_q}\n\n"
-        f"{choice}"
+        f"{rest_part}\n\n{leading_q}\n\n{choice}"
     )
 
 # ==================================================
@@ -422,63 +459,29 @@ def route_message(user_id: str, text: str) -> dict:
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
     stack = detect_priority_stack(text)
     if stack:
-        # Try to name the concern for a more human line
-        concern_label = None
-        for aliases, human in [
-            # --- Physical Health ---
-            (("cholesterol","hyperlipid","dyslipid"), "high cholesterol"),
-            (("overweight","obese","weight","weight loss","weight-loss",
-              "glp-1","ozempic","wegovy","mounjaro","tirzepatide","semaglutide"), "weight/obesity (incl. GLP-1 use)"),
-            (("blood sugar","type 2 diabetes","t2d","pre-diabetes","prediabetes","insulin resistance"), "blood sugar / type 2 diabetes"),
-            (("menopause","perimenopause","peri-menopause","postmenopause","post-menopause"), "menopause / age-related changes"),
-            (("hypertension","high blood pressure","blood pressure"), "high blood pressure"),
-            (("osteoarthritis","arthritis","joint pain"), "joint problems"),
-            (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"), "cardiovascular disease"),
-            (("copd","asthma","sleep apnoea","sleep apnea","breathing difficulties"), "breathing difficulties"),
-            (("liver disease","fatty liver","alcohol-related liver disease","arld","nafld"), "liver disease"),
-            (("kidney disease","ckd","chronic kidney"), "kidney disease"),
-            (("osteopenia","osteoporosis","bone health"), "bone health"),
-            (("metabolic syndrome","high triglycerides","low hdl","large waist","waist circumference"), "metabolic syndrome"),
-            (("autoimmune","type 1 diabetes","graves","rheumatoid arthritis","psoriasis","vasculitis","multiple sclerosis","ms"), "autoimmune disorder"),
+        key = match_concern_key(text) or "cholesterol"   # or "health concern"
+        reply = make_concern_intro_reply(key, stack)
 
-            # --- Mental Health (ICD-11) ---
-            (("low mood","depression","bipolar","seasonal affective","sad"), "mood/affective disorder"),
-            (("anxiety","gad","generalised anxiety","generalized anxiety","mild anxiety"), "anxiety disorder"),
-            (("stress","ptsd","post-traumatic stress","trauma"), "stress-related disorder"),
-            (("emotional dysregulation","binge eating","binge-eating","emotional eating","comfort eating","feeding disorder"), "emotional/eating disorder"),
-            (("adhd","asd","autism","neurodevelopmental"), "neurodevelopmental disorder"),
-            (("addiction","gaming","television","tv","screen time"), "addictive behaviour"),
-            (("sleep-wake","circadian","insomnia","disordered sleep","sleep disorder","sleep apnoea","sleep apnea"), "sleep-wake disorder"),
-            (("cognitive decline","mci","neurocognitive","dementia","alzheimer"), "neurocognitive disorder"),
+    # remember this so the next "advice" message knows what to use
+    LAST_CONCERN[user_id] = {"key": key, "stack": stack}
 
-            # --- Gut Health ---
-            (("ibs","irritable bowel"), "irritable bowel syndrome"),
-            (("bloating","constipation","diarrhoea","diarrhea","abdominal pain","functional gi","gut dysbiosis"), "functional gastrointestinal problem"),
-            (("leaky gut","intestinal permeability","crohn","ulcerative colitis","ibd","coeliac","celiac","autoimmune gastritis"), "leaky gut / IBD"),
-            (("food allergy","food intolerance","gluten","dairy","wheat","histamine","mold","mould"), "food allergy or intolerance"),
-            (("gerd","acid reflux","reflux"), "acid reflux / GERD"),
-        ]:
-            if any(a in lower for a in aliases):
-                concern_label = human
-                break
-
-        concern_label = concern_label or "health concern"
-
-        reply = make_concern_intro_reply(concern_label, stack)
-        LAST_SEEN[user_id] = now
-        return {"reply": reply + tag}
-
+    LAST_SEEN[user_id] = now
+    return {"reply": reply + tag}
+    
     # If the user chooses after a concern-first intro
     if lower == "advice":
-        stk = detect_priority_stack(text)
+        saved = LAST_CONCERN.get(user_id)
+        first_pillar = (saved["stack"][0] if saved and saved.get("stack") else "nutrition")
         LAST_SEEN[user_id] = now
-        return {"reply": compose_reply((stk[0] if stk else "nutrition"), text) + tag}
+        return {"reply": compose_reply(first_pillar, text) + tag}
 
     if lower == "baseline":
-        bl = handle_baseline(user_id, text)
-        if bl is not None:
-            LAST_SEEN[user_id] = now
-            return bl
+    # (optional) clear the saved concern so baseline can take over
+    LAST_CONCERN.pop(user_id, None)
+    bl = handle_baseline(user_id, text)
+    if bl is not None:
+        LAST_SEEN[user_id] = now
+        return bl
 
     # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
