@@ -432,8 +432,17 @@ def route_message(user_id: str, text: str) -> dict:
 
     # First ever message from this user
     if last is None:
-        LAST_SEEN[user_id] = now
-        return {"reply": "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?"}
+    LAST_SEEN[user_id] = now
+    intro = (
+        "Hello, I'm Smartie — your supportive eity20 friend. How can I help you today?\n\n"
+        "Here are a few ways we can get started:\n"
+        "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
+        "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"
+        "• Type **advice** for general tips\n"
+        "• Type **baseline** for a 1-minute assessment\n\n"
+        f"{EITY20_TAGLINE}"
+    )
+    return {"reply": intro}
 
     # Returning user: greet if it's been 24h since last message OR if they explicitly say hi
     long_gap = (now - last) >= timedelta(hours=24)
@@ -480,22 +489,30 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # --- Human first for open-ended asks (warm line + 1 question + clear choices) ---
-    if any(phrase in lower for phrase in {
+    # --- Human-first: offer simple options for first/open-ended asks ---
+    OPEN_ENDED_TRIGGERS = {
         "help", "advice", "support",
         "change my lifestyle", "change my life",
-        "improve my lifestyle", "get healthier", "where do i start",
-        "i need help", "i want help", "how do i begin"
-    }):
+        "improve my lifestyle", "get healthier",
+        "where do i start", "how do i start",
+        "lifestyle changes", "improve my health",
+    }        
+
+    if any(phr in lower for phr in OPEN_ENDED_TRIGGERS):
         LAST_SEEN[user_id] = now
-        return {"reply": (
-            "I completely understand — we can keep this simple and doable. "
-            "We’ll use eity20’s 8 pillars to make small changes with big impact.\n\n"
-            "Quick one: **what feels hardest right now**?\n\n"
-            "Would you like me to:\n"
-            "• **Share focused advice** for today (type: *advice*)\n"
-            "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
-        )}
+        reply = (
+            "I’m here to support you. Let’s see how I can help:\n\n"
+            "1) **Health concern** (physical, mental, or gut)\n"
+            "   • Type your concern — e.g. *cholesterol*, *depression*, *IBS*.\n\n"
+            "2) **Lifestyle concern**\n"
+            "   • Type a pillar area — e.g. *sleep*, *nutrition*, *movement*, *stress*.\n\n"
+            "3) **General quick tips**\n"
+            "   • Type **advice**.\n\n"
+            "4) **Baseline assessment (1 minute)**\n"
+            "   • Type **baseline** to prioritise the pillars to focus on.\n\n"
+            f"{EITY20_TAGLINE}"
+        )
+        return {"reply": reply}
     
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
     stack = detect_priority_stack(text)
