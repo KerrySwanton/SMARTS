@@ -435,7 +435,7 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         intro = (
             "Hello, I'm Smartie. I am here to help you stay eity20 — "
-            "80% consistent, 20% flexible, 100% human.
+            "80% consistent, 20% flexible, 100% human."
             "How would you like me to support your health & wellbeing journey?:\n\n"
             "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
             "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"                
@@ -446,11 +446,13 @@ def route_message(user_id: str, text: str) -> dict:
         return {"reply": intro}
 
     # Returning user: greet if it's been 24h since last message OR if they explicitly say hi
-    long_gap = (now - last) >= timedelta(hours=24)
-    said_hello = lower in {"hi", "hello", "hey", "hi smartie", "hello smartie"}
     if long_gap or said_hello:
         LAST_SEEN[user_id] = now
-        return {"reply": "Hello, welcome back. How are you today?"}
+        return {"reply": (
+            "Welcome back 👋\n"
+            "Remember, eity20 is about staying 80% consistent, 20% flexible — 100% human.\n\n"
+            "What’s on your mind today — a health concern, a lifestyle habit, or would you like some advice?"
+        )}
 
     # --- 1) Safety first ---
     s = safety_check_and_reply(text)
