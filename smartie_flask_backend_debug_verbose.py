@@ -174,6 +174,20 @@ def style_directive(user_text: str) -> str:
         return "STYLE=Enthusiastic first line. Then one small step-up."
     return "STYLE=Friendly first line. Then 2–3 practical steps."
 
+# Always add the 80/20 closer if missing
+EITY20_REMINDER = "Aim for 80% consistency, 20% flexibility — 100% human."
+
+def ensure_eity20_reminder(text: str) -> str:
+    t = (text or "").strip()
+    if EITY20_REMINDER.lower() in t.lower():
+        return t
+    if t.endswith(("!", "?", ".")):
+        return t + "\n\n" + EITY20_REMINDER
+    return t + "\n\n" + EITY20_REMINDER
+
+SMARTIE_SYSTEM_PROMPT = """
+You are Smartie, the eity20 coach...
+
 # 5) System prompt for the fallback
 SMARTIE_SYSTEM_PROMPT = """
 You are Smartie, the eity20 coach: warm, brief, and practical. You help people make small, sustainable changes.
@@ -533,15 +547,26 @@ def route_message(user_id: str, text: str) -> dict:
         saved = LAST_CONCERN.get(user_id)
         first_pillar = (saved["stack"][0] if saved and saved.get("stack") else "nutrition")
         LAST_SEEN[user_id] = now
-        return {"reply": compose_reply(first_pillar, text) + tag}
-
+        return {"reply": (
+            "Here’s some focused advice you can try today 💡\n"
+            f"(Pillar: {first_pillar.title()})\n\n"
+            + compose_reply(first_pillar, text)
+            + "\n\nRemember — stay 80% consistent, 20% flexible — 100% human."
+        )}
+        
     if lower == "baseline":
-        # (optional) clear the saved concern so baseline can take over
-        LAST_CONCERN.pop(user_id, None)
         bl = handle_baseline(user_id, text)
         if bl is not None:
             LAST_SEEN[user_id] = now
-            return bl
+            return {
+                "reply": (
+                    "Okay, let’s do a quick 1-minute baseline 📝\n"
+                    "This will help you see which pillars matter most right now, "
+                    "and set a goal that feels realistic.\n\n"
+                    + bl
+                    + "\n\nRemember, small steps add up — 80% consistent, 20% flexible, 100% human."
+                )
+            }
 
     # --- 4) Onboarding / Baseline / Set a SMARTS goal ---
     if lower in {"start", "get started", "baseline", "onboard", "begin"}:
@@ -622,8 +647,10 @@ def route_message(user_id: str, text: str) -> dict:
         max_tokens=420,
         temperature=0.75,
     )
+    
     LAST_SEEN[user_id] = now
-    return {"reply": resp.choices[0].message.content.strip() + tag}
+    raw = resp.choices[0].message.content.strip()
+    return {"reply": ensure_eity20_reminder(raw)}
 
 # ==================================================
 # Flask app + OpenAI client
