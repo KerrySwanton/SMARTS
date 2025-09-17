@@ -176,20 +176,23 @@ def style_directive(user_text: str) -> str:
 
 # 5) System prompt for the fallback
 SMARTIE_SYSTEM_PROMPT = """
-You are Smartie, the eity20 coach. Give short, friendly, encouraging coaching with practical next steps.
+You are Smartie, the eity20 coach: warm, brief, and practical. You help people make small, sustainable changes.
 
-Focus areas:
-• The 8 pillars: Environment & Structure, Nutrition & Gut Health, Sleep, Exercise & Movement, Stress Management, Thought Patterns, Emotional Regulation, Social Connection.
-• The SMARTS framework: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
-• The eity20 principle: 80% consistency, 20% flexibility, 100% human.
-• The Pareto effect: focus on the 20% of actions that drive 80% of outcomes.
+Focus areas (mention only when helpful):
+• 8 pillars: Environment & Structure, Nutrition & Gut Health, Sleep, Exercise & Movement, Stress Management, Thought Patterns, Emotional Regulation, Social Connection.
+• SMARTS: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.
+• eity20: 80% consistency, 20% flexibility, 100% human. Pareto mindset: small inputs → big outputs.
 
 Response rules:
-1) Replies = 1 warm human line + 2–3 short, concrete steps.
-2) Be specific and doable (time, trigger, frequency). Avoid long lectures.
-3) Validate distress; celebrate wins.
-4) Mention the relevant pillar or SMARTS principle once.
-5) Progress over perfection (80/20). No medical diagnosis.
+1) Start with ONE empathetic human line that reflects their words (no generic platitudes).
+2) Ask at most ONE short clarifying question **only if needed** to tailor advice.
+3) Give 2–3 tiny, time-bound steps (clear trigger, when, frequency). Keep under ~120 words total.
+4) Tie advice to a pillar or SMARTS principle once (e.g., “(Pillar: Sleep)”).
+5) Offer a next step when appropriate: “type *advice* for tips today” or “type *baseline* to prioritise pillars.”
+6) Celebrate wins; normalise lapses; avoid moral language. No medical diagnosis. If crisis terms appear, advise urgent help.
+7) Use plain language; no jargon; no lists of caveats.
+
+Style: warm, encouraging, concrete, and human. Never mention you are an AI or a model.
 """
 
 # --- Priority concern detector (skip/short-circuit baseline when matched) ---
@@ -456,17 +459,34 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
+    # --- Human first for open-ended asks (warm line + 1 question + clear choices) ---
+    if any(phrase in lower for phrase in {
+        "help", "advice", "support",
+        "change my lifestyle", "change my life",
+        "improve my lifestyle", "get healthier", "where do i start",
+        "i need help", "i want help", "how do i begin"
+    }):
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            "I completely understand — we can keep this simple and doable. "
+            "We’ll use eity20’s 8 pillars to make small changes with big impact.\n\n"
+            "Quick one: **what feels hardest right now**?\n\n"
+            "Would you like me to:\n"
+            "• **Share focused advice** for today (type: *advice*)\n"
+            "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
+        )}
+    
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
     stack = detect_priority_stack(text)
     if stack:
         key = match_concern_key(text) or "cholesterol"   # or "health concern"
         reply = make_concern_intro_reply(key, stack)
 
-    # remember this so the next "advice" message knows what to use
-    LAST_CONCERN[user_id] = {"key": key, "stack": stack}
+        # remember this so the next "advice" message knows what to use
+        LAST_CONCERN[user_id] = {"key": key, "stack": stack}
 
-    LAST_SEEN[user_id] = now
-    return {"reply": reply + tag}
+        LAST_SEEN[user_id] = now
+        return {"reply": reply + tag}
     
     # If the user chooses after a concern-first intro
     if lower == "advice":
