@@ -269,16 +269,81 @@ EITY20_INTRO = (
     "Train your brain, Speak up."
 )
 
+# Tailored leading questions by concern label (used right after the intro)
+LEADING_QUESTIONS = {
+    # --- Physical health ---
+    "high cholesterol":
+        "What do you think has driven your cholesterol up lately — food choices, weight, family history, or something else?",
+    "weight/obesity (incl. GLP-1 use)":
+        "What makes losing weight so tough right now — hunger, evening snacking, routine, or energy for movement?",
+    "blood sugar / type 2 diabetes":
+        "What do you think most affects your blood sugar — meal timing, carb type/size, activity, or sleep/stress?",
+    "menopause / age-related changes":
+        "Which symptom bothers you most — sleep, hot flushes, mood, or weight changes?",
+    "high blood pressure":
+        "When is your blood pressure highest — stressful days, poor sleep, salty foods, or inactivity?",
+    "joint problems":
+        "Which joints limit you most and when — mornings, after sitting, or with activity?",
+    "cardiovascular disease":
+        "What feels most important to work on first — movement, food quality, blood pressure, or stress?",
+    "breathing difficulties":
+        "What tends to trigger symptoms — exertion, allergens, sleep position, or stress?",
+    "liver disease":
+        "Which area do you want to focus on — alcohol, weight, balanced meals, or daily movement?",
+    "kidney disease":
+        "What’s your current priority — blood pressure control, blood sugars, protein balance, or salt intake?",
+    "bone health":
+        "Which change feels most doable — strength exercises, calcium/protein at meals, or vitamin D checks?",
+    "metabolic syndrome":
+        "Which piece feels most moveable first — waist size, triglycerides, fasting glucose, or blood pressure?",
+    "autoimmune disorder":
+        "What tends to cause a flare up — stress, poor sleep, infections, or specific foods?",
+
+    # --- Mental health (ICD-11-ish) ---
+    "mood/affective disorder":
+        "What shifts your mood most — sleep quality, activity, social contact, or self-talk?",
+    "anxiety disorder":
+        "When does anxiety spike — mornings, social settings, at night, or after caffeine/sugar?",
+    "stress-related disorder":
+        "What’s your main stress load — work, caring, finances, health, or something else?",
+    "emotional/eating disorder":
+        "What’s the usual pattern before eating episodes — strong feelings, tiredness, being unprepared, or restrictive rules?",
+    "neurodevelopmental disorder":
+        "What do you think will help — routines, sleep, food planning, or focus breaks?",
+    "addictive behaviour":
+        "What’s the main trigger — boredom, late-night routine, stress, or social cues?",
+    "sleep-wake disorder":
+        "Which part is hardest — getting to sleep, staying asleep, wake time, or caffeine timing?",
+    "neurocognitive disorder":
+        "Which daily function needs the most help — remembering tasks, planning, or staying focused?",
+
+    # --- Gut health ---
+    "irritable bowel syndrome":
+        "What most sets symptoms off — certain foods, stress spikes, poor sleep, or irregular meals?",
+    "functional gastrointestinal problem":
+        "What’s most noticeable — bloating, pain, constipation, diarrhoea, or post-meal fatigue?",
+    "leaky gut / IBD":
+        "What tends to precede flare ups — stress, infections, specific foods, or inconsistent meds?",
+    "food allergy or intolerance":
+        "Which foods are you most suspicious of right now?",
+    "acid reflux / GERD":
+        "When is reflux worst — late meals, lying down after eating, trigger foods, or larger portions?",
+}
+
 def make_concern_intro_reply(concern_label: str, stack: list[str]) -> str:
-    """Warm intro + show the most helpful pillars for this concern + a leading question."""
-    # nice human label for the first pillar
+    """Warm intro + show the most helpful pillars for this concern + a tailored question."""
     first = stack[0]
     label_map = {k: v["label"] for k, v in PILLARS.items()}
     first_label = label_map.get(first, first.title())
     rest_labels = [label_map.get(p, p.title()) for p in stack[1:]]
     rest_part = f" Next up we can explore: {', '.join(rest_labels)}." if rest_labels else ""
 
-    leading_q = f"What do you think is contributing most to your {concern_label} right now?"
+    # pick a tailored question, fall back to a generic one
+    leading_q = LEADING_QUESTIONS.get(
+        concern_label,
+        f"What do you think is contributing most to your {concern_label} right now?"
+    )
+
     choice = (
         "Would you like me to:\n"
         "• **Share focused advice** for today (type: *advice*)\n"
@@ -292,7 +357,7 @@ def make_concern_intro_reply(concern_label: str, stack: list[str]) -> str:
         f"{leading_q}\n\n"
         f"{choice}"
     )
-    
+
 # ==================================================
 # Unified router
 # ==================================================
