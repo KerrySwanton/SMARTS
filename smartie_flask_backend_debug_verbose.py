@@ -446,12 +446,12 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         intro = (
             "Hello, I'm Smartie. I am here to help you stay eity20 — "
-            "80% consistent, 20% flexible, 100% human."
-            "How would you like me to support your health & wellbeing journey?:\n\n"
-            "• Type a **health concern** (e.g. cholesterol, depression, IBS)\n"
-            "• Type a **lifestyle area** (sleep, nutrition, movement, stress)\n"                
-            "• Type **advice** for general tips\n"
-            "• Type **baseline** for a 1-minute assessment\n\n"
+            "80% consistent, 20% flexible, 100% human.\n"
+            "How would you like me to support your health & wellbeing journey?\n\n"
+            "• Type a **health concern** (e.g. cholesterol, depression, IBS).\n"
+            "• Type a **lifestyle area** (sleep, nutrition, movement, stress).\n"                
+            "• Type **advice** for general tips.\n"
+            "• Type **baseline** for a 1-minute assessment.\n\n"
             f"{EITY20_TAGLINE}"
         )
         return {"reply": intro}
@@ -503,38 +503,46 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
         return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # --- Human-first: offer simple options for first/open-ended asks ---
-    OPEN_ENDED_TRIGGERS = {
-        "help", "advice", "support",
-        "change my lifestyle", "change my life",
-        "improve my lifestyle", "get healthier",
-        "where do i start", "how do i start",
-        "lifestyle changes", "improve my health",
-    }        
-
-    if any(phr in lower for phr in OPEN_ENDED_TRIGGERS):
+    # --- 2.x Direct commands ---
+    if lower.strip() == "advice":
+        # use saved concern if we have it; otherwise pick something sensible
+        saved = LAST_CONCERN.get(user_id)
+        first_pillar = (saved["stack"][0] if saved and saved.get("stack")
+                        else map_intent_to_pillar(text) or "nutrition")
         LAST_SEEN[user_id] = now
-        reply = (
-            "I’m here to support you. Let’s see how I can help:\n\n"
-            "1) **Health concern** (physical, mental, or gut)\n"
-            "   • Type your concern — e.g. *cholesterol*, *depression*, *IBS*.\n\n"
-            "2) **Lifestyle concern**\n"
-            "   • Type a pillar area — e.g. *sleep*, *nutrition*, *movement*, *stress*.\n\n"
-            "3) **General quick tips**\n"
-            "   • Type **advice**.\n\n"
-            "4) **Baseline assessment (1 minute)**\n"
-            "   • Type **baseline** to prioritise the pillars to focus on.\n\n"
-            f"{EITY20_TAGLINE}"
-        )
-        return {"reply": reply}
-    
+        return {"reply": compose_reply(first_pillar, text) + tag}
+
+    if lower.strip() == "baseline":
+        # clear any saved concern so baseline can take over cleanly
+        LAST_CONCERN.pop(user_id, None)
+        bl = handle_baseline(user_id, text)
+        if bl is not None:
+            LAST_SEEN[user_id] = now
+            return bl
+
+    # --- Human first for open-ended asks (menu) ---
+    MENU_TRIGGERS = {
+        "help", "support", "change my lifestyle", "change my life",
+        "improve my lifestyle", "get healthier", "where do i start"
+        # NOTE: intentionally NOT including "advice" or "baseline"
+    }
+    if any(phrase in lower for phrase in MENU_TRIGGERS):
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            "I completely underdstand. We’ll use eity20’s 8 pillars to prevent ill health and for lasting health & wellbeing.\n\n"
+            "How would you like to begin?\n"
+            "• Type a *health concern* (e.g., cholesterol, depression, IBS)\n"
+            "• Type a *lifestyle area* (e.g., sleep, nutrition, movement, stress)\n"
+            "• Type *advice* for general tips\n"
+            "• Type *baseline* for a 1-minute assessment\n\n"
+            f"{EITY20_REMINDER}"
+        )}
+
     # --- 3) Concern-first: introduce Smartie/eity20, ask, and offer choice ---
     stack = detect_priority_stack(text)
     if stack:
-        key = match_concern_key(text) or "blood sugar"  # sensible default
+        key = match_concern_key(text) or "blood sugar"
         reply = make_concern_intro_reply(key, stack, user_text=text)
-
-        # remember this so the next "advice" message knows what to use
         LAST_CONCERN[user_id] = {"key": key, "stack": stack}
         LAST_SEEN[user_id] = now
         return {"reply": reply + tag}
