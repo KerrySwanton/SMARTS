@@ -25,7 +25,19 @@ CONCERN_CHOICES: dict[str, dict] = {}
 # Last time we saw each user (in-memory; resets on restart unless you persist it)
 LAST_SEEN: dict[str, datetime] = {}
 LAST_CONCERN: dict[str, dict] = {}  # { user_id: {"key": str, "stack": [pillars]} }
+# Last conversational state per user (simple finite-state store)
+# e.g. STATE[user_id] = {"await": "advice_topic"} or {"await": "programme_confirm"}
+STATE: dict[str, dict] = {}
 
+def get_state(uid: str) -> dict:
+    return STATE.get(uid, {})
+
+def set_state(uid: str, **data) -> None:
+    STATE[uid] = dict(data)
+
+def clear_state(uid: str) -> None:
+    STATE.pop(uid, None)
+    
 # ==================================================
 # Safety-first + concern mapping + intent helpers
 # ==================================================
