@@ -29,8 +29,6 @@ LAST_CONCERN: dict[str, dict] = {}  # { user_id: {"key": str, "stack": [pillars]
 # e.g. STATE[user_id] = {"await": "advice_topic"} or {"await": "programme_confirm"}
 # Simple per-user state (mini state machine)
 STATE: dict[str, dict] = {}   # { user_id: {"await": "advice_topic"} }
-# Map programme topic to the pillar we’ll route to for advice
-TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
 
 def get_state(uid: str) -> dict:
     return STATE.get(uid, {})
@@ -445,22 +443,23 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
         f"{choice}"
     )
 
-# --- Programs users can start from the "advice" path ---
+# --- Advice "programs" config (must be above route_message) ---
+
 PROGRAMS = {
-    "anxiety":   {"label": "reduce anxiety",        "pillar": "stress"},
-    "emotions":  {"label": "regulate your emotions","pillar": "emotions"},
-    "sleep":     {"label": "sleep better",          "pillar": "sleep"},
-    "nutrition": {"label": "eat for steady energy", "pillar": "nutrition"},
-    "movement":  {"label": "move more, feel better","pillar": "movement"},
+    "anxiety":    {"label": "reduce anxiety",            "pillar": "stress"},
+    "emotions":   {"label": "regulate your emotions",    "pillar": "emotions"},
+    "sleep":      {"label": "sleep better",              "pillar": "sleep"},
+    "nutrition":  {"label": "eat for steady energy",     "pillar": "nutrition"},
+    "movement":   {"label": "move more, feel better",    "pillar": "movement"},
 }
 
-# Map many words to one advice/program topic
-PROGRAM_ALIASES: list[tuple[tuple[str, ...], str]] = [
-    (("anxiety","anxious","worry","worries","worrying","panic"),                         "anxiety"),
-    (("emotion","emotions","urge","craving","binge","comfort eat","comfort-eat"),        "emotions"),
-    (("sleep","insomnia","can’t sleep","cant sleep","tired","wake"),                      "sleep"),
-    (("food","nutrition","diet","snack","snacking","eat","eating","ibs"),                "nutrition"),
-    (("exercise","move","movement","walk","steps","workout"),                             "movement"),
+# Map many user words to one program key
+PROGRAM_ALIASES = [
+    (("anxiety","anxious","worry","worries","worrying","panic"),                        "anxiety"),
+    (("emotion","emotions","urge","craving","binge","comfort eat","comfort-eat"),       "emotions"),
+    (("sleep","insomnia","can't sleep","cant sleep","tired","wake"),                    "sleep"),
+    (("food","nutrition","diet","snack","snacking","eat","eating","ibs"),               "nutrition"),
+    (("exercise","move","movement","walk","steps","workout"),                           "movement"),
 ]
 
 def detect_program_key(text: str) -> str | None:
@@ -476,28 +475,28 @@ def program_pitch(key: str) -> str:
         return ""
     return f"an eity20 programme to **{p['label']}** (Pillar: {p['pillar'].title()})"
 
-# Quick checks for "start a programme" intents
-START_WORDS = ("start", "begin", "try", "do", "kick off", "start a", "begin a")
-PROGRAM_WORDS = ("programme", "program", "plan", "course")
+# Quick checks for “start a programme” intent
+START_WORDS   = ("start","begin","try","do","kick off","start a","begin a")
+PROGRAM_WORDS = ("programme","program","plan","course")
 
 def wants_program_start(text: str) -> bool:
     t = (text or "").lower()
     return any(w in t for w in START_WORDS) and any(p in t for p in PROGRAM_WORDS)
 
-# Infer the programme topic from free text (re-uses your alias map)
+# Infer program topic from free text (used when user says “start …”)
 def detect_topic_from_text(text: str) -> str | None:
     t = (text or "").lower()
-    k = detect_program_key(t)          # uses PROGRAM_ALIASES you already have
+    k = detect_program_key(t)
     if k:
         return k
-    # A couple of safety nets; feel free to expand:
+    # small safety nets
     if "ibs" in t or "gut" in t or "reflux" in t:
         return "nutrition"
     if "worry" in t or "worrying" in t or "panic" in t:
         return "anxiety"
     return None
 
-# Map programme topic to pillar we route advice to
+# Build the program→pillar map (now that PROGRAMS exists)
 TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
 
 # ==================================================
