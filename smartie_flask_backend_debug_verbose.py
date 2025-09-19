@@ -29,6 +29,8 @@ LAST_CONCERN: dict[str, dict] = {}  # { user_id: {"key": str, "stack": [pillars]
 # e.g. STATE[user_id] = {"await": "advice_topic"} or {"await": "programme_confirm"}
 # Simple per-user state (mini state machine)
 STATE: dict[str, dict] = {}   # { user_id: {"await": "advice_topic"} }
+# Map programme topic to the pillar we’ll route to for advice
+TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
 
 def get_state(uid: str) -> dict:
     return STATE.get(uid, {})
@@ -474,6 +476,30 @@ def program_pitch(key: str) -> str:
         return ""
     return f"an eity20 programme to **{p['label']}** (Pillar: {p['pillar'].title()})"
 
+# Quick checks for "start a programme" intents
+START_WORDS = ("start", "begin", "try", "do", "kick off", "start a", "begin a")
+PROGRAM_WORDS = ("programme", "program", "plan", "course")
+
+def wants_program_start(text: str) -> bool:
+    t = (text or "").lower()
+    return any(w in t for w in START_WORDS) and any(p in t for p in PROGRAM_WORDS)
+
+# Infer the programme topic from free text (re-uses your alias map)
+def detect_topic_from_text(text: str) -> str | None:
+    t = (text or "").lower()
+    k = detect_program_key(t)          # uses PROGRAM_ALIASES you already have
+    if k:
+        return k
+    # A couple of safety nets; feel free to expand:
+    if "ibs" in t or "gut" in t or "reflux" in t:
+        return "nutrition"
+    if "worry" in t or "worrying" in t or "panic" in t:
+        return "anxiety"
+    return None
+
+# Map programme topic to pillar we route advice to
+TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
+
 # ==================================================
 # Unified router
 # ==================================================
@@ -514,6 +540,34 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         return {"reply": s}
 
+    # --- X) Free-form: “start a … programme” (no menu needed) ---
+    if wants_program_start(text):
+        # infer topic (e.g., "anxiety", "sleep", "nutrition", "movement")
+        topic = detect_topic_from_text(text) or "nutrition"
+        pillar = (
+            TOPIC_TO_PILLAR.get(topic)
+            or map_intent_to_pillar(topic)
+            or "nutrition"
+        )
+    
+        # remember for follow-ups
+        LAST_CONCERN[user_id] = {"topic": topic}
+    
+        # human-friendly label, e.g. “an eity20 programme to reduce anxiety”
+        pitch = program_pitch(topic) or f"an eity20 programme for *{topic}*"
+    
+        safety = (
+            "Heads-up: this isn’t a medical diagnostic service. "
+            "eity20 supports health & wellbeing via lifestyle change."
+        )
+    
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            f"Brilliant — let’s begin {pitch}.\n"
+            f"{safety}\n\n"
+            + compose_reply(pillar, f"start programme: {topic}")
+        )}
+    
     # 2) Tracking quick commands
     if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
         _ = log_done(user_id=user_id)
@@ -566,10 +620,13 @@ def route_message(user_id: str, text: str) -> dict:
         if not topic_key:
             LAST_SEEN[user_id] = now
             return {"reply": (
-                "Got it. Tell me in a few words what you want help with (e.g., anxiety, sleep, food, movement, IBS). "
-                "Or type *baseline* if you’re not sure."
+                "Got it. Tell me in a few words what you want help with "
+                "(e.g., anxiety, sleep, food, movement, IBS). Or type *baseline* if you’re not sure."
             )}
-        STATE.pop(user_id, None)  # clear state once we have a topic
+    
+        STATE.pop(user_id, None)                         # clear state
+        LAST_CONCERN[user_id] = {"topic": topic_key}     # <— REMEMBER the chosen topic
+    
         pitch = program_pitch(topic_key)
         LAST_SEEN[user_id] = now
         return {"reply": (
@@ -581,32 +638,51 @@ def route_message(user_id: str, text: str) -> dict:
             "Reply with **1**, **2**, or **3**."
         )}
 
-    # Optional: numeric replies (1/2/3) after the advice topic
     if cmd in {"1", "2", "3"}:
+        saved = LAST_CONCERN.get(user_id, {})
+        topic = saved.get("topic")
+    
+        # If we don't know the topic yet, ask for it first
+        if not topic and cmd in {"1", "3"}:
+            STATE[user_id] = {"await": "advice_topic"}
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                "Tell me the topic in a few words (e.g., anxiety, sleep, food, movement, IBS) "
+                "so I can tailor this for you."
+            )}
+
         if cmd == "2":
+            # Baseline path
+            LAST_CONCERN.pop(user_id, None)  # optional: clear saved topic for a clean baseline
             bl = handle_baseline(user_id, text)
             if bl is not None:
                 LAST_SEEN[user_id] = now
                 return bl
             LAST_SEEN[user_id] = now
             return {"reply": "Okay — type *baseline* to begin the 1-minute assessment."}
-        if cmd == "3":
-            LAST_SEEN[user_id] = now
-            return {"reply": "Tell me a bit more about this topic — what feels hardest right now?"}
-        # cmd == "1" → start programme (lightweight handoff)
-        LAST_SEEN[user_id] = now
-        return {"reply": (
-            "Brilliant — let’s begin. I’ll share two tiny steps you can try today.\n\n"
-            "If you’d like to tailor it, say a few words about the topic again (e.g., “anxiety” or “sleep”)."
-        )}
 
-    if cmd in {"baseline", "start baseline", "start-baseline"}:
-        # (optional) clear saved concern so baseline flow takes over cleanly
-        LAST_CONCERN.pop(user_id, None)
-        bl = handle_baseline(user_id, text)
-        if bl is not None:
+        # Route topic → pillar for 1 or 3
+        pillar = TOPIC_TO_PILLAR.get(topic) or map_intent_to_pillar(topic) or "stress"
+
+        if cmd == "1":
+            # Start programme: short intro + two tiny, time-bound steps via your playbook
+            safety = ("(Heads-up: this isn’t a medical diagnostic service. "
+                      "eity20 helps people improve health & wellbeing through lifestyle change.)")
             LAST_SEEN[user_id] = now
-            return bl
+            return {"reply": (
+                f"Brilliant – let’s begin {program_pitch(topic)}.\n"
+                f"{safety}\n\n"
+                + compose_reply(pillar, f"start programme: {topic}")
+            )}
+
+        if cmd == "3":
+            # General advice on this topic (same engine, just without the programme preamble)
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                "Here are two tiny actions you can try today 👇\n"
+                f"(Pillar: {pillar.title()})\n\n"
+                + compose_reply(pillar, f"general advice: {topic}")
+            )}
 
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
