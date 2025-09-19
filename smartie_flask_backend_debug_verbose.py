@@ -27,7 +27,8 @@ LAST_SEEN: dict[str, datetime] = {}
 LAST_CONCERN: dict[str, dict] = {}  # { user_id: {"key": str, "stack": [pillars]} }
 # Last conversational state per user (simple finite-state store)
 # e.g. STATE[user_id] = {"await": "advice_topic"} or {"await": "programme_confirm"}
-STATE: dict[str, dict] = {}
+# Simple per-user state (mini state machine)
+STATE: dict[str, dict] = {}   # { user_id: {"await": "advice_topic"} }
 
 def get_state(uid: str) -> dict:
     return STATE.get(uid, {})
@@ -442,22 +443,52 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
         f"{choice}"
     )
 
+# --- Programs users can start from the "advice" path ---
+PROGRAMS = {
+    "anxiety":   {"label": "reduce anxiety",        "pillar": "stress"},
+    "emotions":  {"label": "regulate your emotions","pillar": "emotions"},
+    "sleep":     {"label": "sleep better",          "pillar": "sleep"},
+    "nutrition": {"label": "eat for steady energy", "pillar": "nutrition"},
+    "movement":  {"label": "move more, feel better","pillar": "movement"},
+}
+
+# Map many words to one advice/program topic
+PROGRAM_ALIASES: list[tuple[tuple[str, ...], str]] = [
+    (("anxiety","anxious","worry","worries","worrying","panic"),                         "anxiety"),
+    (("emotion","emotions","urge","craving","binge","comfort eat","comfort-eat"),        "emotions"),
+    (("sleep","insomnia","can’t sleep","cant sleep","tired","wake"),                      "sleep"),
+    (("food","nutrition","diet","snack","snacking","eat","eating","ibs"),                "nutrition"),
+    (("exercise","move","movement","walk","steps","workout"),                             "movement"),
+]
+
+def detect_program_key(text: str) -> str | None:
+    t = (text or "").lower()
+    for aliases, key in PROGRAM_ALIASES:
+        if any(w in t for w in aliases):
+            return key
+    return None
+
+def program_pitch(key: str) -> str:
+    p = PROGRAMS.get(key)
+    if not p:
+        return ""
+    return f"an eity20 programme to **{p['label']}** (Pillar: {p['pillar'].title()})"
+
 # ==================================================
-# Unified router (drop-in)
+# Unified router
 # ==================================================
 def route_message(user_id: str, text: str) -> dict:
     lower = (text or "").strip().lower()
+    now = datetime.now(timezone.utc)
     tag = f"\n{EITY20_TAGLINE}" if 'EITY20_TAGLINE' in globals() else ""
 
-    # --- 0) Greeting logic (first-time + returning after 24h) ---
-    now = datetime.now(timezone.utc)
+    # 0) Greeting / welcome-back
     last = LAST_SEEN.get(user_id)
-
     if last is None:
         LAST_SEEN[user_id] = now
         intro = (
             "Hello, I'm Smartie. I am here to help you stay eity20 — "
-            "80% consistent, 20% flexible, 100% human.\n"
+            "80% consistent, 20% flexible, 100% human.\n\n"
             "How would you like me to support your health & wellbeing journey?\n\n"
             "• Type a *health concern* (e.g. cholesterol, depression, IBS)\n"
             "• Type a *lifestyle area* (sleep, nutrition, movement, stress)\n"
@@ -467,23 +498,23 @@ def route_message(user_id: str, text: str) -> dict:
         )
         return {"reply": intro}
 
-    # Returning user: greet if it's been 24h since last message OR they explicitly say hi
     long_gap = (now - last) >= timedelta(hours=24)
-    if long_gap or lower in {"hi", "hello", "hey", "hi smartie", "hello smartie"}:
+    said_hello = lower in {"hi", "hello", "hey", "hi smartie", "hello smartie"}
+    if long_gap or said_hello:
         LAST_SEEN[user_id] = now
         return {"reply": (
-            "Welcome back 👋\n"
+            "Welcome back 👋\n\n"
             "Remember, eity20 is about staying 80% consistent, 20% flexible — 100% human.\n\n"
-            "What's on your mind today — a health concern, a lifestyle habit, or would you like some advice?"
+            "What’s on your mind today — a health concern, a lifestyle habit, or would you like some advice?"
         )}
 
-    # --- 1) Safety first ---
+    # 1) Safety first
     s = safety_check_and_reply(text)
     if s:
         LAST_SEEN[user_id] = now
         return {"reply": s}
 
-    # --- 2) Quick commands: tracking ---
+    # 2) Tracking quick commands
     if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
         _ = log_done(user_id=user_id)
         g = get_goal(user_id)
@@ -492,9 +523,9 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": (
                 "Nice work — logged for today! ✅\n"
                 f"Goal: “{g.text}” ({g.cadence})\n"
-                "Say *progress* to see the last 14 days."
+                "Say **progress** to see the last 14 days."
             ) + tag}
-        return {"reply": "Logged! If you want this tied to a goal, run *baseline* to set one." + tag}
+        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
 
     if lower in {"progress", "summary", "stats"}:
         LAST_SEEN[user_id] = now
@@ -504,7 +535,7 @@ def route_message(user_id: str, text: str) -> dict:
         logs = last_n_logs(user_id, 5)
         LAST_SEEN[user_id] = now
         if not logs:
-            return {"reply": "No check-ins yet. Say *done* whenever you complete your goal today." + tag}
+            return {"reply": "No check-ins yet. Say **done** whenever you complete your goal today." + tag}
         lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
         return {"reply": "\n".join(lines) + tag}
 
@@ -513,100 +544,71 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         if g:
             return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
-        return {"reply": "You don’t have an active goal yet. Type *baseline* to set one." + tag}
+        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
 
-    # --- 2.x Direct commands (Advice mini-wizard & Baseline) ---
-    cmd = lower
+    # 2.x Direct commands: advice / baseline (run early)
+    cmd = lower.strip()
 
-    # ADVICE: start the mini-wizard
+    # ---- Advice flow (mini state machine) ----
     if cmd in {"advice", "tips", "tip"}:
         STATE[user_id] = {"await": "advice_topic"}
         LAST_SEEN[user_id] = now
         return {"reply": (
             "What advice would you like?\n\n"
-            "You can say things like: worry/anxiety, sleep, food/nutrition, movement, low mood, IBS, "
+            "You can say things like: worry/anxiety, sleep, food/nutrition, movement, low mood, IBS — "
             "or another topic in your own words.\n\n"
             "If you’re unsure, you can also type *baseline*."
         )}
 
-    # Advice step: user provides the topic
-    if STATE.get(user_id, {}).get("await") == "advice_topic":
+    waiting = STATE.get(user_id, {}).get("await")
+    if waiting == "advice_topic":
         topic_key = detect_program_key(text)
+        if not topic_key:
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                "Got it. Tell me in a few words what you want help with (e.g., anxiety, sleep, food, movement, IBS). "
+                "Or type *baseline* if you’re not sure."
+            )}
+        STATE.pop(user_id, None)  # clear state once we have a topic
+        pitch = program_pitch(topic_key)
         LAST_SEEN[user_id] = now
-
-        if topic_key:
-            STATE[user_id] = {"await": "confirm_program", "program": topic_key}
-            reply = program_intro_text(topic_key)
-            if topic_key in {"anxiety", "emotions", "thoughts"}:
-                reply += f"\n\n_{SAFETY_CAVEAT}_"
-            return {"reply": reply}
-
-        # Not recognised → ask again with examples
         return {"reply": (
-            "Thanks — I didn’t quite catch that topic. "
-            "Try one of: anxiety, emotions, sleep, nutrition, movement, thoughts, social, environment.\n\n"
-            "Or type *baseline* to prioritise first."
+            f"Great — we can focus on *{topic_key}*.\n\n"
+            "What would you like to do next?\n"
+            f"1) Start {pitch}\n"
+            "2) Do a quick *baseline* to prioritise what matters most\n"
+            "3) Get *general advice* on this topic\n\n"
+            "Reply with **1**, **2**, or **3**."
         )}
 
-    # Advice step: user chooses programme/baseline/general tips
-    if STATE.get(user_id, {}).get("await") == "confirm_program":
-        chosen_key = STATE[user_id].get("program")
-        choice = lower
-        LAST_SEEN[user_id] = now
-
-        if "baseline" in choice:
-            STATE.pop(user_id, None)
+    # Optional: numeric replies (1/2/3) after the advice topic
+    if cmd in {"1", "2", "3"}:
+        if cmd == "2":
             bl = handle_baseline(user_id, text)
             if bl is not None:
+                LAST_SEEN[user_id] = now
                 return bl
-            return {"reply": "Okay — starting the 1-minute baseline…"}
+            LAST_SEEN[user_id] = now
+            return {"reply": "Okay — type *baseline* to begin the 1-minute assessment."}
+        if cmd == "3":
+            LAST_SEEN[user_id] = now
+            return {"reply": "Tell me a bit more about this topic — what feels hardest right now?"}
+        # cmd == "1" → start programme (lightweight handoff)
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            "Brilliant — let’s begin. I’ll share two tiny steps you can try today.\n\n"
+            "If you’d like to tailor it, say a few words about the topic again (e.g., “anxiety” or “sleep”)."
+        )}
 
-        if "general" in choice or "tip" in choice or "advice" in choice:
-            pillar = PROGRAMS.get(chosen_key, {}).get("pillar") or map_intent_to_pillar(text) or "nutrition"
-            STATE.pop(user_id, None)
-            body = compose_reply(pillar, text)
-            tail = ""
-            if chosen_key in {"anxiety", "emotions", "thoughts"}:
-                tail = f"\n\n_{SAFETY_CAVEAT}_"
-            return {"reply": f"Here are some practical tips for today (Pillar: {pillar.title()})\n\n{body}{tail}"}
-
-        if "start" in choice or "programme" in choice or "program" in choice or "yes" in choice:
-            info = PROGRAMS.get(chosen_key)
-            if not info:
-                STATE.pop(user_id, None)
-                return {"reply": "Sorry — I lost the programme choice. Please type *advice* to try again."}
-            STATE.pop(user_id, None)
-            first_pillar = info["pillar"]
-            step = compose_reply(first_pillar, text)
-            tail = ""
-            if chosen_key in {"anxiety", "emotions", "thoughts"}:
-                tail = f"\n\n_{SAFETY_CAVEAT}_"
-            return {"reply": (
-                f"Great — starting **{info['title']}**.\n\n"
-                f"First tiny step (Pillar: {first_pillar.title()}):\n{step}{tail}"
-            )}
-
-        # If they repeat a topic word here, treat it as a topic selection
-        topic_key = detect_program_key(text)
-        if topic_key:
-            STATE[user_id] = {"await": "confirm_program", "program": topic_key}
-            reply = program_intro_text(topic_key)
-            if topic_key in {"anxiety", "emotions", "thoughts"}:
-                reply += f"\n\n_{SAFETY_CAVEAT}_"
-            return {"reply": reply}
-
-        return {"reply": "Please choose: *start* the programme, type *baseline*, or ask for *general tips*."}
-
-    # BASELINE (direct)
     if cmd in {"baseline", "start baseline", "start-baseline"}:
-        STATE.pop(user_id, None)               # clear any advice state
-        LAST_CONCERN.pop(user_id, None)        # optional: clear saved concern
-        bl = handle_baseline(user_id, text)    # asks concern -> 8 ratings -> suggest pillar -> set goal
+        # (optional) clear saved concern so baseline flow takes over cleanly
+        LAST_CONCERN.pop(user_id, None)
+        bl = handle_baseline(user_id, text)
         if bl is not None:
             LAST_SEEN[user_id] = now
             return bl
 
-    # --- Human-first menu triggers (open-ended asks) ---
+    # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
         "help", "support", "change my lifestyle", "change my life",
         "improve my lifestyle", "get healthier", "where do i start"
@@ -614,71 +616,51 @@ def route_message(user_id: str, text: str) -> dict:
     if any(phrase in lower for phrase in MENU_TRIGGERS):
         LAST_SEEN[user_id] = now
         return {"reply": (
-            "I completely understand. We'll use eity20's 8 pillars to prevent ill health and support lasting wellbeing.\n\n"
+            "I completely understand. We’ll use eity20’s 8 pillars to prevent ill health and for lasting health & wellbeing.\n\n"
             "How would you like to begin?\n"
             "• Type a *health concern* (e.g., cholesterol, depression, IBS)\n"
-            "• Type a *lifestyle area* (sleep, nutrition, movement, stress)\n"
+            "• Type a *lifestyle area* (e.g., sleep, nutrition, movement, stress)\n"
             "• Type *advice* for general tips\n"
             "• Type *baseline* for a 1-minute assessment\n\n"
             "Aim for 80% consistency, 20% flexibility — 100% human."
         )}
 
-    # --- 3) Concern-first: introduce eity20, ask, and offer choice ---
+    # 4) Concern-first (if the message clearly contains a priority concern)
     stack = detect_priority_stack(text)
     if stack:
-        key = match_concern_key(text) or "blood sugar"   # sensible default label for copy
-        reply = make_concern_intro_reply(key, stack, user_text=text)  # your existing helper
+        key = match_concern_key(text) or "blood sugar"
+        reply = make_concern_intro_reply(key, stack, user_text=text)
         LAST_CONCERN[user_id] = {"key": key, "stack": stack}
         LAST_SEEN[user_id] = now
         return {"reply": reply + tag}
 
-    # --- 4) Onboarding / Baseline keywords (again, for convenience) ---
-    if lower in {"start", "get started", "onboard", "begin"}:
-        bl = handle_baseline(user_id, text)
-        if bl is not None:
-            LAST_SEEN[user_id] = now
-            return bl
-
-    # Continue baseline if mid-session
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        LAST_SEEN[user_id] = now
-        return bl
-
-    # --- 5) Pillar advice (direct keywords → playbook) ---
+    # 5) Pillar advice (direct keyword routing)
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("environment", text)}
-
     if any(k in lower for k in ["nutrition", "gut", "food", "diet", "ibs", "bloating"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("nutrition", text)}
-
     if any(k in lower for k in ["sleep", "insomnia", "tired", "can't sleep", "cant sleep"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("sleep", text)}
-
     if any(k in lower for k in ["exercise", "movement", "workout", "walk", "steps"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("movement", text)}
-
     if any(k in lower for k in ["stress", "stressed", "anxiety", "anxious", "overwhelmed"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("stress", text)}
-
     if any(k in lower for k in ["thought", "mindset", "self-talk", "self talk", "motivation"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("thoughts", text)}
-
     if any(k in lower for k in ["emotion", "feelings", "craving", "urge", "binge", "comfort eat", "comfort-eat"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("emotions", text)}
-
     if any(k in lower for k in ["social", "connection", "friends", "lonely", "isolation", "isolated"]):
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply("social", text)}
 
-    # --- 6) Intent/concern mapper → pillar → playbook (support mode) ---
+    # 6) Intent/concern mapper → pillar → playbook
     pillar = map_intent_to_pillar(text)
     if pillar:
         LAST_SEEN[user_id] = now
@@ -690,12 +672,11 @@ def route_message(user_id: str, text: str) -> dict:
         suggestion = ", ".join(labels[:3]) or ", ".join(pillars[:3])
         LAST_SEEN[user_id] = now
         return {"reply": (
-            "Thanks — that helps focus the right areas. "
-            f"These pillars usually help most: {suggestion}.\n"
-            "Want to do a 1-minute baseline and pick one to start?"
+            f"Thanks — that helps focus the right areas. These pillars usually help most: {suggestion}.\n"
+            f"Want to do a 1-minute baseline and pick one to start?\n{EITY20_TAGLINE}"
         )}
 
-    # --- 7) OpenAI fallback (short, warm, actionable, 80/20 tone) ---
+    # 7) OpenAI fallback (short, warm, actionable, 80/20 tone)
     sd = style_directive(text)
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -707,9 +688,8 @@ def route_message(user_id: str, text: str) -> dict:
         temperature=0.75,
     )
     LAST_SEEN[user_id] = now
-    raw = resp.choices[0].message.content.strip()
-    return {"reply": ensure_eity20_reminder(raw)}
-
+    return {"reply": resp.choices[0].message.content.strip() + tag}
+    
 # ==================================================
 # Flask app + OpenAI client
 # ==================================================
@@ -717,7 +697,6 @@ app = Flask(__name__)
 CORS(app)
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-
 
 # ==================================================
 # Twilio WhatsApp setup
