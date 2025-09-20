@@ -314,7 +314,7 @@ HUMAN_LABELS = {
     "autoimmune": "autoimmune condition",
     "low mood": "low mood / depression",
     "anxiety": "anxiety",
-    "worry": "worry"
+    "worry": "worry",
     "ptsd": "stress / PTSD",
     "emotional eating": "emotional / binge eating",
     "emotions": "emotional regulation",
