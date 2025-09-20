@@ -314,8 +314,10 @@ HUMAN_LABELS = {
     "autoimmune": "autoimmune condition",
     "low mood": "low mood / depression",
     "anxiety": "anxiety",
+    "worry": "worry"
     "ptsd": "stress / PTSD",
     "emotional eating": "emotional / binge eating",
+    "emotions": "emotional regulation",
     "adhd": "ADHD",
     "sleep": "sleep problems",
     "cognitive": "thinking / memory",
@@ -394,7 +396,10 @@ def match_concern_key(text: str) -> str | None:
     return None
 
 def human_label_for(key: str) -> str:
-    return HUMAN_LABELS.get(key, key.title())
+    """Return a human-friendly label for a concern key, with fallback."""
+    if not key:
+        return ""
+    return HUMAN_LABELS.get(key, key.replace("_", " ").title())
 
 def leading_question_for(key: str) -> str:
     return LEADING_QUESTIONS.get(
@@ -419,7 +424,7 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
     rest_part = f" Next up: {', '.join(rest_labels)}." if rest_labels else ""
 
     # 1) Empathetic opener (short, human, mirrors their concern)
-    opener = f"I hear you — {concern_label} can feel tough. Let’s keep this simple and doable."
+    opener = f"Thank you — {concern_label} can feel tough. Let's try and help you feel better and thrive by making small changes to your lifestyle that are simple and doable."
 
     # 2) Micro eity20 framing (one line)
     framing = ("We’ll use eity20’s pillars to make small changes with big impact "
@@ -619,7 +624,7 @@ def route_message(user_id: str, text: str) -> dict:
         if not topic_key:
             LAST_SEEN[user_id] = now
             return {"reply": (
-                "Got it. Tell me in a few words what you want help with "
+                "Thank you. Tell me in a few words what you would like help with "
                 "(e.g., anxiety, sleep, food, movement, IBS). Or type *baseline* if you’re not sure."
             )}
     
@@ -682,14 +687,34 @@ def route_message(user_id: str, text: str) -> dict:
                 f"(Pillar: {pillar.title()})\n\n"
                 + compose_reply(pillar, f"general advice: {topic}")
             )}
-
+    
     # --- Direct command: BASELINE (run early) ---
-    if lower.strip() in {"baseline", "start baseline", "start-baseline", "baseline assessment"}:
-        # optionally clear any saved context so baseline owns the conversation
+    cmd = (text or "").strip().lower()
+    if cmd in {"baseline", "start baseline", "start-baseline"}:
+        # 1) Try to seed the user's concern into baseline
+        seed_key = None
+        saved = LAST_CONCERN.get(user_id)  # <-- read BEFORE clearing
+        if saved:
+            seed_key = saved.get("key") or saved.get("topic")
+        seed_key = seed_key or match_concern_key(text)
+    
+        # 2) Now optionally clear context so baseline owns the conversation
         LAST_CONCERN.pop(user_id, None)
         STATE.pop(user_id, None)
+    
+        # 3) Start baseline (seed if supported, else prepend a note)
+        try:
+            bl = handle_baseline(user_id, text, seed_concern=seed_key)  # preferred
+        except TypeError:
+            preface = f"Great — we’ll keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
+            bl = preface + (handle_baseline(user_id, text) or "")
+    
+        if bl is not None:
+            LAST_SEEN[user_id] = now
+            return {"reply": bl} if isinstance(bl, str) else bl
 
-    bl = handle_baseline(user_id, text)  # asks concern → 8 ratings → suggest pillar → set goal
+    # --- Continue baseline if mid-session (run BEFORE any other branches) ---
+    bl = handle_baseline(user_id, text)
     if bl is not None:
         LAST_SEEN[user_id] = now
         return bl
