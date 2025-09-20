@@ -683,6 +683,17 @@ def route_message(user_id: str, text: str) -> dict:
                 + compose_reply(pillar, f"general advice: {topic}")
             )}
 
+    # --- Direct command: BASELINE (run early) ---
+    if lower.strip() in {"baseline", "start baseline", "start-baseline", "baseline assessment"}:
+        # optionally clear any saved context so baseline owns the conversation
+        LAST_CONCERN.pop(user_id, None)
+        STATE.pop(user_id, None)
+
+    bl = handle_baseline(user_id, text)  # asks concern → 8 ratings → suggest pillar → set goal
+    if bl is not None:
+        LAST_SEEN[user_id] = now
+        return bl
+    
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
         "help", "support", "change my lifestyle", "change my life",
