@@ -316,6 +316,7 @@ HUMAN_LABELS = {
     "anxiety": "anxiety",
     "worry": "worry",
     "ptsd": "stress / PTSD",
+    "stress": "stress",
     "emotional eating": "emotional / binge eating",
     "emotions": "emotional regulation",
     "adhd": "ADHD",
