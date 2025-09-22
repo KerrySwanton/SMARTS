@@ -469,7 +469,7 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
     leading_q = leading_question_for(concern_key)
 
     # 4) Options up-front (programme included; direct goal path)
-    programme_hint = program_pitch(first) or f"the eity20 programme for *{first_label}*"
+    programme_hint = f"the eity20 programme for *{first_label}*"
     choices = (
         "Here are good next steps:\n"
         "1) **Tell me more** — what do you think is driving this right now?\n"
@@ -629,9 +629,9 @@ PILLAR_OUTCOMES = {
 def pillar_detail_prompt(pillar: str) -> str:
     human = PILLARS.get(pillar, {}).get("label", pillar.title())
     related = related_concerns_for_pillar(pillar)
-    programme_hint = program_pitch(pillar) or f"the eity20 programme for *{human}*"
+    programme_hint = f"the eity20 programme for *{human}*"
     return (
-        f"Great — let’s focus on *{human}*.\n\n"
+        f"Let’s focus on *{human}*.\n\n"
         f"Is there a reason you want help with this? For some people it’s linked to a health concern such as {related}.\n\n"
         f"Here are a few ways we can continue:\n"
         f"1) If it’s due to a health concern, just name it (e.g., “type 2 diabetes”, “IBS”).\n"
@@ -695,21 +695,20 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return {"reply": advice_opening_message()}
         
-        # lifestyle area on the very first message → ask the pillar clarifier (not the generic menu)
-        pillar = map_intent_to_pillar(text)
-        if pillar:
-            set_state(user_id, **{"await": "pillar_detail", "pillar": pillar})
-            LAST_SEEN[user_id] = now
-            return {"reply": pillar_detail_prompt(pillar)}
-
-        # health concern keywords (e.g., “cholesterol”, “ibs”, “anxiety”)
+        # 1) health concern keywords (e.g., “cholesterol”, “ibs”, “type 2 diabetes”)
         concern_key = match_concern_key(text)
         if concern_key:
             stack = detect_priority_stack(text) or [concern_key]
             LAST_CONCERN[user_id] = {"key": concern_key, "stack": stack}
             LAST_SEEN[user_id] = now
             return {"reply": make_concern_intro_reply(concern_key, stack, user_text=text) + tag}
-    # --- end first-message fast-path ---
+
+        # 2) lifestyle area mapping
+        pillar = map_intent_to_pillar(text)
+        if pillar:
+            set_state(user_id, **{"await": "pillar_detail", "pillar": pillar})
+            LAST_SEEN[user_id] = now
+            return {"reply": pillar_detail_prompt(pillar)}
 
     # 0) Greeting / welcome-back
     last = LAST_SEEN.get(user_id)
@@ -901,10 +900,10 @@ def route_message(user_id: str, text: str) -> dict:
         try:
             bl = handle_baseline(user_id, text, seed_concern_key=seed_key)  # preferred
         except TypeError:
-            preface = f"Great — we’ll keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
+            preface = f"We will keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
             hb = handle_baseline(user_id, text) or ""
             if isinstance(hb, dict):
-                hb = hb.get("reply", "")  # extract the reply text if dict
+                hb = hb.get("reply", "")
             bl = preface + hb
     
         if bl is not None:
@@ -1008,9 +1007,20 @@ def route_message(user_id: str, text: str) -> dict:
         LAST_SEEN[user_id] = now
         return {"reply": pillar_detail_prompt(pillar)}
 
-    # --- Follow-up after pillar choice: habit vs health concern ---------------
+    # --- Follow-up after pillar choice: habit vs health concern (clarifier path)
     if get_state(user_id).get("await") == "pillar_detail":
         chosen = get_state(user_id).get("pillar") or map_intent_to_pillar(text) or "nutrition"
+        human_label = PILLARS.get(chosen, {}).get("label", chosen.title())
+
+        # NEW: set a SMARTS goal now (without looping back to menus)
+        if any(k in lower for k in {"goal", "set goal", "smart goal", "set a goal"}):
+            set_state(user_id, **{"await": "goal_text", "pillar": chosen})
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                f"Let’s set a SMARTS goal for *{human_label}*.\n"
+                "What’s one small, realistic action you’d like to take in the next week? "
+                "For example: “lights out by 10:30pm on weeknights” or “add a palm of protein at lunch.”"
+            )}
 
         # allow quick jump to baseline
         if "baseline" in lower:
@@ -1061,7 +1071,33 @@ def route_message(user_id: str, text: str) -> dict:
         if is_advice_intent(text):
             LAST_SEEN[user_id] = now
             return {"reply": advice_opening_message()}
-    
+
+    # --- Capture the user's goal text and save it -------------------------------
+    if get_state(user_id).get("await") == "goal_text":
+        goal_text = (text or "").strip()
+        pillar = get_state(user_id).get("pillar", "nutrition")
+
+        # Try tracker first if it exposes a setter; else store temporarily.
+        try:
+            # If tracker.set_goal exists, use it; otherwise the import will fail and we fall back.
+            from tracker import set_goal as tracker_set_goal  # optional
+            tracker_set_goal(user_id=user_id, text=goal_text, pillar_key=pillar, cadence="most days")
+            saved_via_tracker = True
+        except Exception:
+            saved_via_tracker = False
+
+        if not saved_via_tracker:
+            # Fallback: keep it in-memory so conversation can continue.
+            PENDING_GOALS[user_id] = {"text": goal_text, "pillar": pillar, "cadence": "most days"}
+
+        clear_state(user_id)
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            f"Goal saved: “{goal_text}” (Pillar: {pillar.title()}, cadence: most days).\n"
+            "Say **done** whenever you complete it; say **progress** to see your last 14 days.\n\n"
+            "Want a couple of helpful tips for this area? Say **general tips**."
+        )}
+
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
         "help", "support", "change my lifestyle", "change my life",
