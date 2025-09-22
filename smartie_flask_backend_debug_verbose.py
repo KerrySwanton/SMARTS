@@ -795,7 +795,9 @@ def route_message(user_id: str, text: str) -> dict:
         lines = ["Recent check-ins:"] + [f"• {e.date.isoformat()}" for e in logs]
         return {"reply": "\n".join(lines) + tag}
 
-    if lower in {"what's my goal", "whats my goal", "goal", "show goal"}:
+    # Show goal status (avoid stealing "goal" when we're setting one)
+    if lower in {"what's my goal", "whats my goal", "show goal", "goal status"} \
+       and get_state(user_id).get("await") not in {"pillar_detail", "goal_text"}:
         g = get_goal(user_id)
         LAST_SEEN[user_id] = now
         if g:
