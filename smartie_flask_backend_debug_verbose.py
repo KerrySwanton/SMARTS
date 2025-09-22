@@ -716,7 +716,6 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return bl if not isinstance(bl, str) else {"reply": bl}
 
-    # --- Lifestyle area intent: invite the user to choose a pillar ---
     if any(p in lower for p in [
         "lifestyle area",
         "choose lifestyle area",
@@ -726,7 +725,7 @@ def route_message(user_id: str, text: str) -> dict:
         "lifestyle focus",
         "lifestyle"
     ]):
-        set_state(user_id, await="lifestyle_pillar")
+        set_state(user_id, **{"await": "lifestyle_pillar"})
         LAST_SEEN[user_id] = now
         return {"reply": (
             "Which *lifestyle area* would you like to focus on?\n"
