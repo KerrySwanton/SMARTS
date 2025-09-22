@@ -198,6 +198,36 @@ def ensure_eity20_reminder(text: str) -> str:
         return t + "\n\n" + EITY20_REMINDER
     return t + "\n\n" + EITY20_REMINDER
 
+# --- Advice intent (first-contact) -------------------------------------------
+ADVICE_INTENT_TERMS = {
+    "advice", "help", "support",
+    "can you help", "can you help me",
+    "i need help", "i'd like some advice", "i would like some advice",
+    "improve my lifestyle", "change my lifestyle",
+    "get healthier", "where do i start",
+    "how do i change my behaviour", "how to change my behavior", "change my behaviour", "change my behavior",
+}
+
+def is_advice_intent(text: str) -> bool:
+    t = (text or "").lower()
+    return any(term in t for term in ADVICE_INTENT_TERMS)
+
+def advice_opening_message() -> str:
+    return (
+        "Hello, I would be very happy to help you.\n\n"
+        "When it comes to changing behaviour, it’s the small, consistent inputs that create the biggest long-term change. "
+        "The eity20 ethos is 80% consistency, 20% flexibility because we are 100% human.\n\n"
+        "We’ll use the **SMARTS** approach to guide you:\n"
+        "• **Sustainable** — keep changes doable day to day\n"
+        "• **Mindful mindset** — notice patterns without judgment\n"
+        "• **Aligned** — match goals to what matters to you\n"
+        "• **Realistic** — start small and build gradually\n"
+        "• **Train your brain** — repeat tiny habits until they stick\n"
+        "• **Speak up** — sharing goals/support makes change easier\n\n"
+        "Is there someone specific you would like advice about?\n"
+        "If it’s for you, we can start with a focus like sleep, nutrition, movement, or stress — or I can suggest a few simple first steps."
+    )
+
 # 5) System prompt for the fallback
 SMARTIE_SYSTEM_PROMPT = """
 You are Smartie, the eity20 coach: warm, brief, and practical. You help people make small, sustainable changes.
@@ -558,6 +588,11 @@ def route_message(user_id: str, text: str) -> dict:
             # (this is your existing direct-baseline block)
             return start_baseline_now(user_id, text, now)  # helper wrapper you already have
 
+        # NEW: advice-like first message → show the warm advice opening (skip intro)
+        if is_advice_intent(text):
+            LAST_SEEN[user_id] = now
+            return {"reply": advice_opening_message()}
+        
         # clear “lifestyle area” intent (e.g., “sleep”, “stress”, etc.)
         pillar = map_intent_to_pillar(text)
         if pillar:
@@ -902,6 +937,11 @@ def route_message(user_id: str, text: str) -> dict:
         set_state(user_id, **{"await": None})
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply(chosen, text) + tag}
+
+        # Optional: mid-conversation broad advice request → advice opening
+        if is_advice_intent(text):
+            LAST_SEEN[user_id] = now
+            return {"reply": advice_opening_message()}
     
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
