@@ -786,7 +786,7 @@ def route_message(user_id: str, text: str) -> dict:
         "lifestyle focus",
         "lifestyle",
     ]):
-        set_state(user_id, await="lifestyle_pillar")
+        set_state(user_id, **{"await": "lifestyle_pillar"})
         LAST_SEEN[user_id] = now
         return {"reply": (
             "Which *lifestyle area* would you like to focus on?\n"
@@ -805,7 +805,7 @@ def route_message(user_id: str, text: str) -> dict:
     if get_state(user_id).get("await") == "lifestyle_pillar":
         # allow quick jump to baseline at any time
         if "baseline" in lower:
-            set_state(user_id, await=None)
+            set_state(user_id, **{"await": None})
             LAST_SEEN[user_id] = now
             bl = handle_baseline(user_id, text)
             if bl is not None:
@@ -859,7 +859,7 @@ def route_message(user_id: str, text: str) -> dict:
             )}
 
         # we got a pillar — move to a short clarifying step instead of instant advice
-        set_state(user_id, await="pillar_detail", pillar=pillar)
+        set_state(user_id, **{"await": "pillar_detail"}, pillar=pillar)
         LAST_SEEN[user_id] = now
         human = PILLARS.get(pillar, pillar.title())
         return {"reply": (
@@ -876,7 +876,7 @@ def route_message(user_id: str, text: str) -> dict:
 
         # allow quick jump to baseline
         if "baseline" in lower:
-            set_state(user_id, await=None)
+            set_state(user_id, **{"await": None})
             LAST_SEEN[user_id] = now
             bl = handle_baseline(user_id, text)
             if bl is not None:
@@ -886,21 +886,20 @@ def route_message(user_id: str, text: str) -> dict:
         concern_key = match_concern_key(text)
         if concern_key:
             LAST_CONCERN[user_id] = {"key": concern_key}
-            set_state(user_id, await=None)
+            set_state(user_id, **{"await": None})
             LAST_SEEN[user_id] = now
             prog_key = detect_program_key(text) or concern_key
             pitch = program_pitch(prog_key) or "make steady progress"
             return {"reply": (
-                f"Thanks — I heard *{human_label_for(concern_key)}*.\n"
+                f"Thank you — I heard *{human_label_for(concern_key)}*.\n"
                 "Would you like to:\n"
-                f"1) Start {program_pitch(prog_key)} (type: *start*),\n"
-                "2) Do a 1-minute *baseline* to prioritise,\n"
+                f"1) Start {program_pitch(prog_key)} (type: *start*)\n"
+                "2) Do a 1-minute *baseline* to prioritise\n"
                 "3) Or get *advice* for today?\n"
                 f"{EITY20_TAGLINE}"
             )}
-
         # otherwise, treat their message as the habit/context and give focused advice
-        set_state(user_id, await=None)
+        set_state(user_id, **{"await": None})
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply(chosen, text) + tag}
     
