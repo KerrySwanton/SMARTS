@@ -805,14 +805,8 @@ def route_message(user_id: str, text: str) -> dict:
             )}
 
         if cmd == "2":
-            # Baseline path
-            LAST_CONCERN.pop(user_id, None)  # optional: clear saved topic for a clean baseline
-            bl = handle_baseline(user_id, text)
-            if bl is not None:
-                LAST_SEEN[user_id] = now
-                return bl
-            LAST_SEEN[user_id] = now
-            return {"reply": "Okay — type *baseline* to begin the 1-minute assessment."}
+            # Baseline path (use the unified helper that normalises outputs)
+            return start_baseline_now(user_id, text, now)
 
         # Route topic → pillar for 1 or 3
         pillar = TOPIC_TO_PILLAR.get(topic) or map_intent_to_pillar(topic) or "stress"
@@ -858,11 +852,15 @@ def route_message(user_id: str, text: str) -> dict:
             bl = handle_baseline(user_id, text, seed_concern_key=seed_key)  # preferred
         except TypeError:
             preface = f"Great — we’ll keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
-            bl = preface + (handle_baseline(user_id, text) or "")
+            hb = handle_baseline(user_id, text) or ""
+            if isinstance(hb, dict):
+                hb = hb.get("reply", "")  # extract the reply text if dict
+            bl = preface + hb
     
         if bl is not None:
             LAST_SEEN[user_id] = now
-            return bl if not isinstance(bl, str) else {"reply": bl}
+            # Normalize to the router’s shape
+            return bl if isinstance(bl, dict) else {"reply": bl}
 
     # --- Lifestyle area intent: ask which pillar they want -------------------
     if any(p in lower for p in [
