@@ -741,7 +741,7 @@ def route_message(user_id: str, text: str) -> dict:
         )}    
 
     # --- Handle the user's pillar choice (after we asked for a lifestyle area) ---
-    if get_state(user_id, "await") == "lifestyle_pillar":
+    if get_state(user_id).get("await") == "lifestyle_pillar":
         # Normalise common inputs → pillar keys
         pillar_map = {
             "environment": "environment",
@@ -786,7 +786,7 @@ def route_message(user_id: str, text: str) -> dict:
 
         # allow quick jump to baseline if they change their mind
         if "baseline" in lower:
-            set_state(user_id, await=None)
+            set_state(user_id)  # clears state safely
             LAST_SEEN[user_id] = now
             bl = handle_baseline(user_id, text)
             if bl is not None:
