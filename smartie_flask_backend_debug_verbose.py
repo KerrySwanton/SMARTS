@@ -38,7 +38,11 @@ def set_state(uid: str, **data) -> None:
 
 def clear_state(uid: str) -> None:
     STATE.pop(uid, None)
-    
+
+from collections import defaultdict
+
+GOAL_LOG: dict[str, list] = defaultdict(list)
+
 # ==================================================
 # Safety-first + concern mapping + intent helpers
 # ==================================================
@@ -641,6 +645,53 @@ def pillar_detail_prompt(pillar: str) -> str:
         f"{PILLAR_OUTCOMES.get(pillar, '')}"
     )
 
+# --- SMARTS goal suggestions by pillar ---------------------------------------
+SUGGESTED_GOALS = {
+    "sleep": [
+        "Lights out by 10:30pm on weeknights",
+        "No screens after 10pm; read 5–10 minutes instead",
+        "Out of bed within 15 minutes of waking"
+    ],
+    "nutrition": [
+        "Add a palm-sized protein to lunch daily",
+        "Eat a high-fibre breakfast 5 days/week",
+        "Close the kitchen at 9pm on weeknights"
+    ],
+    "movement": [
+        "10-minute walk after lunch on workdays",
+        "Strength routine (2 sets) on Mon/Wed/Fri",
+        "Stand up and stretch every hour 9–5"
+    ],
+    "stress": [
+        "2 minutes of slow breathing at 3pm daily",
+        "Write tomorrow’s top 1 task at 6pm",
+        "10-minute wind-down walk after work"
+    ],
+    "thoughts": [
+        "Do a 2-minute ‘name the thought + reframe’ once daily",
+        "Write 1 helpful counter-thought each morning",
+        "3 gratitudes before bed on weeknights"
+    ],
+    "emotions": [
+        "Urge surf for 90 seconds before snacking",
+        "Label the feeling once per day",
+        "3-minute body scan after lunch daily"
+    ],
+    "environment": [
+        "Set clothes/water/shoes out the night before (Sun–Thu)",
+        "Prep tomorrow’s lunch at 8pm on weeknights",
+        "Homescreen: only essentials for 7 days"
+    ],
+    "social": [
+        "Send one ‘How are you?’ message every other day",
+        "Plan one 20-minute walk with a friend this week",
+        "Reply to messages within 24 hours for 5 days"
+    ],
+}
+
+def suggest_goals_for(pillar: str) -> list[str]:
+    return SUGGESTED_GOALS.get(pillar, SUGGESTED_GOALS["nutrition"])
+
 # --- Advice intent (first-contact) -------------------------------------------
 ADVICE_INTENT_TERMS = {
     "advice", "help", "support",
@@ -770,22 +821,30 @@ def route_message(user_id: str, text: str) -> dict:
             + compose_reply(pillar, f"start programme: {topic}")
         )}
     
-    # 2) Tracking quick commands
+    # 2) Tracking quick commands  (log "done" + show progress later)
     if lower in {"done", "i did it", "check in", "check-in", "log done", "logged"}:
+        # 1) persist via your tracker (existing behaviour)
         _ = log_done(user_id=user_id)
+    
+        # 2) also record a local tick so "progress" can report 14-day consistency
+        #    (avoid duplicate ticks on the same day)
+        today = now.date()
+        already_today = any((ts.date() == today) for ts in GOAL_LOG[user_id])
+        if not already_today:
+            GOAL_LOG[user_id].append(now)
+    
         g = get_goal(user_id)
         LAST_SEEN[user_id] = now
         if g:
             return {"reply": (
                 "Nice work — logged for today! ✅\n"
-                f"Goal: “{g.text}” ({g.cadence})\n"
-                "Say **progress** to see the last 14 days."
+                f"Goal: “{g.text}” (Pillar: {g.pillar_key})\n"
+                "Say **progress** anytime to see the last 14 days."
             ) + tag}
-        return {"reply": "Logged! If you want this tied to a goal, run **baseline** to set one." + tag}
-
-    if lower in {"progress", "summary", "stats"}:
-        LAST_SEEN[user_id] = now
-        return {"reply": tracker_summary(user_id) + tag}
+        return {"reply": "Logged! If you want this tied to a goal, say **goal** while we’re in a lifestyle area." + tag}
+        if lower in {"progress", "summary", "stats"}:
+            LAST_SEEN[user_id] = now
+            return {"reply": tracker_summary(user_id) + tag}
 
     if lower in {"history", "recent"}:
         logs = last_n_logs(user_id, 5)
@@ -797,12 +856,15 @@ def route_message(user_id: str, text: str) -> dict:
 
     # Show goal status (avoid stealing "goal" when we're setting one)
     if lower in {"what's my goal", "whats my goal", "show goal", "goal status"} \
-       and get_state(user_id).get("await") not in {"pillar_detail", "goal_text"}:
+        and get_state(user_id).get("await") not in {"pillar_detail", "goal_text", "goal_pick"}:
         g = get_goal(user_id)
         LAST_SEEN[user_id] = now
         if g:
-            return {"reply": f"Your goal is: “{g.text}” (cadence: {g.cadence}, pillar: {g.pillar_key})." + tag}
-        return {"reply": "You don’t have an active goal yet. Type **baseline** to set one." + tag}
+            return {"reply": (
+                f"Your goal: “{g.text}” (Pillar: {g.pillar_key}).\n"
+                "Aim for about **80% consistency** — we’re not chasing perfection."
+            ) + tag}
+        return {"reply": "You don’t have an active goal yet. Say **goal** while we’re in a lifestyle area to set one." + tag}
 
     # 2.x Direct commands: advice / baseline (run early)
     cmd = lower.strip()
@@ -1032,6 +1094,46 @@ def route_message(user_id: str, text: str) -> dict:
             if bl is not None:
                 return bl
 
+        # --- Track progress over the last 14 days (with encouragement tiers) ---------
+        if "progress" in lower:
+            # Pull completions and compute 14-day consistency
+            completions = GOAL_LOG.get(user_id, [])
+            cutoff = now.date() - timedelta(days=14)
+            last_14 = [ts for ts in completions if ts.date() >= cutoff]
+            count = len(last_14)
+            percent = round((count / 14) * 100) if count else 0
+        
+            # Encouragement tiers
+            if percent >= 80:
+                encouragement = (
+                    "Fantastic — you’re right around the eity20 sweet spot. "
+                    "Keep doing what’s working and bank the routine!"
+                )
+            elif percent >= 50:
+                encouragement = (
+                    "Solid momentum — you’re over halfway. "
+                    "What’s one small tweak that would bump you +10% this week?"
+                )
+            elif count == 0:
+                encouragement = (
+                    "Everyone starts at 0. Let’s make it easy: pick a tiny version of your goal "
+                    "(or say **goal** to set a simpler one)."
+                )
+            else:  # 1–49%
+                encouragement = (
+                    "Good start — small steps stick. "
+                    "What would make this 10% easier this week (time, reminder, smaller step)?"
+                )
+        
+            return {"reply": (
+                f"You’ve completed your goal on {count} of the last 14 days "
+                f"— that’s about {percent}% consistency.\n\n"
+                f"{encouragement}\n\n"
+                "The eity20 ethos is 80% consistency, 20% flexibility — 100% human.\n"
+                "Tip: reply **done** on days you do it; say **goal** to adjust your goal; "
+                "or ask for **general tips** for ideas."
+            )}
+        
         # NEW: if they ask for general tips/suggestions, give pillar advice now
         if any(k in lower for k in {"general tips", "tips", "advice", "suggestions"}):
             set_state(user_id, **{"await": None})
@@ -1074,14 +1176,35 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return {"reply": advice_opening_message()}
 
-    # --- Capture the user's goal text and save it -------------------------------
+    # --- Capture the user's goal text (or suggest options if unsure) -------------
     if get_state(user_id).get("await") == "goal_text":
         goal_text = (text or "").strip()
         pillar = get_state(user_id).get("pillar", "nutrition")
+        human_label = PILLARS.get(pillar, {}).get("label", pillar.title())
 
-        # Try tracker first if it exposes a setter; else store temporarily.
+        # If they ask a question / seem unsure, offer suggestions
+        unsure = (
+            goal_text.endswith("?")
+            or any(k in goal_text.lower() for k in [
+                "what do you think", "not sure", "don't know", "dont know",
+                "help", "suggest", "idea", "which", "how should"
+            ])
+        )
+        if unsure or len(goal_text.split()) <= 2:
+            options = suggest_goals_for(pillar)
+            # save options in state for the next turn
+            set_state(user_id, **{"await": "goal_pick", "pillar": pillar, "opts": options})
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                f"Here are a few SMARTS goal ideas for *{human_label}*:\n"
+                f"1) {options[0]}\n"
+                f"2) {options[1]}\n"
+                f"3) {options[2]}\n\n"
+                "Reply with **1**, **2**, or **3** to pick one — or type your own in your words."
+            )}
+
+        # Otherwise save what they wrote as the goal
         try:
-            # If tracker.set_goal exists, use it; otherwise the import will fail and we fall back.
             from tracker import set_goal as tracker_set_goal  # optional
             tracker_set_goal(user_id=user_id, text=goal_text, pillar_key=pillar, cadence="most days")
             saved_via_tracker = True
@@ -1089,15 +1212,48 @@ def route_message(user_id: str, text: str) -> dict:
             saved_via_tracker = False
 
         if not saved_via_tracker:
-            # Fallback: keep it in-memory so conversation can continue.
             PENDING_GOALS[user_id] = {"text": goal_text, "pillar": pillar, "cadence": "most days"}
-
+    
         clear_state(user_id)
         LAST_SEEN[user_id] = now
         return {"reply": (
-            f"Goal saved: “{goal_text}” (Pillar: {pillar.title()}, cadence: most days).\n"
-            "Say **done** whenever you complete it; say **progress** to see your last 14 days.\n\n"
+            f"Goal saved: “{goal_text}” (Pillar: {human_label}).\n"
+            "Aim for about **80% consistency** — the eity20 way.\n\n"
+            "To track it: reply **done** on each day you do it; type **progress** anytime to see your last 14 days.\n"
             "Want a couple of helpful tips for this area? Say **general tips**."
+        )}
+
+    # --- Pick from suggested goals ----------------------------------------------
+    if get_state(user_id).get("await") == "goal_pick":
+        data = get_state(user_id)
+        pillar = data.get("pillar", "nutrition")
+        human_label = PILLARS.get(pillar, {}).get("label", pillar.title())
+        options = data.get("opts") or suggest_goals_for(pillar)
+    
+        choice = (text or "").strip().lower()
+        if choice in {"1", "2", "3"}:
+            goal_text = options[int(choice)-1]
+        else:
+            # treat their message as a custom goal
+            goal_text = (text or "").strip()
+
+        # Save the goal
+        try:
+            from tracker import set_goal as tracker_set_goal  # optional
+            tracker_set_goal(user_id=user_id, text=goal_text, pillar_key=pillar, cadence="most days")
+            saved_via_tracker = True
+        except Exception:
+            saved_via_tracker = False
+        if not saved_via_tracker:
+            PENDING_GOALS[user_id] = {"text": goal_text, "pillar": pillar, "cadence": "most days"}
+    
+        clear_state(user_id)
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            f"Goal saved: “{goal_text}” (Pillar: {human_label}).\n"
+            "Aim for about **80% consistency** — the eity20 way.\n\n"
+            "To track it: reply **done** on each day you do it; type **progress** anytime to see your last 14 days.\n"
+            "If you'd like, I can also share **general tips** for this area."
         )}
 
     # 3) Human menu triggers for open-ended requests
