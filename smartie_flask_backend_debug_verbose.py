@@ -562,6 +562,58 @@ def start_baseline_now(user_id: str, text: str, now: datetime):
     # If nothing came back, provide a nudge
     return {"reply": "Okay — type *baseline* to begin the 1-minute assessment."}
 
+# --- Pillar-specific clarifier ------------------------------------------------
+RELATED_CONCERNS_BY_PILLAR = {
+    "sleep":     ["stress/anxiety", "blood sugar / type 2 diabetes", "reflux/GERD", "sleep apnoea", "low mood"],
+    "nutrition": ["IBS/bloating", "blood sugar / type 2 diabetes", "cholesterol", "reflux/GERD", "weight"],
+    "movement":  ["joint pain/arthritis", "low mood", "weight", "blood pressure", "sleep issues"],
+    "stress":    ["anxiety/GAD", "PTSD/trauma", "blood pressure", "IBS/gut symptoms", "sleep problems"],
+    "thoughts":  ["low mood/depression", "anxiety", "insomnia", "binge/emotional eating"],
+    "emotions":  ["binge/emotional eating", "anxiety", "sleep problems", "stress-related flare ups"],
+    "environment": ["ADHD/routine", "screen overuse", "snacking cues", "sleep timing"],
+    "social":    ["loneliness", "low mood", "motivation", "stress"],
+}
+
+def related_concerns_for_pillar(pillar: str) -> str:
+    items = RELATED_CONCERNS_BY_PILLAR.get(pillar, [])
+    return ", ".join(items[:5])
+
+def pillar_detail_prompt(pillar: str) -> str:
+    human = PILLARS.get(pillar, {}).get("label", pillar.title())
+    related = related_concerns_for_pillar(pillar)
+    programme_hint = program_pitch(pillar) or f"the eity20 programme for *{human}*"
+    return (
+        f"Great — let’s focus on *{human}*.\n\n"
+        f"Is there a reason you want help with this? For some people it’s linked to a health concern such as {related}.\n"
+        f"• If it’s due to a health concern, just name it (e.g., “type 2 diabetes”, “IBS”).\n"
+        f"• If you’d like suggestions, say **general tips** and I’ll share two tiny actions.\n\n"
+        f"Remember: everything links together — improving {human.lower()} helps your mood, stress, energy and overall health.\n\n"
+        f"You can also start {programme_hint} or type **baseline** to set a SMARTS goal to track progress."
+    )
+
+# --- Advice intent (first-contact) -------------------------------------------
+ADVICE_INTENT_TERMS = {
+    "advice", "help", "support",
+    "can you help", "can you help me",
+    "i need help", "i'd like some advice", "i would like some advice",
+    "improve my lifestyle", "change my lifestyle", "get healthier", "where do i start",
+    "how do i change my behaviour", "how to change my behavior", "change my behaviour", "change my behavior",
+}
+
+def is_advice_intent(text: str) -> bool:
+    t = (text or "").lower()
+    return any(term in t for term in ADVICE_INTENT_TERMS)
+
+def advice_opening_message() -> str:
+    return (
+        "Hello, I would be very happy to help you.\n\n"
+        "When it comes to changing behaviour, it’s the small, consistent inputs that create the biggest long-term change. "
+        "The eity20 ethos is 80% consistency, 20% flexibility — 100% human.\n\n"
+        "We’ll use **SMARTS** to guide you: Sustainable, Mindful mindset, Aligned, Realistic, Train your brain, Speak up.\n\n"
+        "Is there someone specific you would like advice about? "
+        "If it’s for you, tell me your focus (e.g., sleep, nutrition, movement, stress) or say **baseline** to set a SMARTS goal."
+    )
+
 # ==================================================
 # Unified router
 # ==================================================
@@ -593,11 +645,12 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return {"reply": advice_opening_message()}
         
-        # clear “lifestyle area” intent (e.g., “sleep”, “stress”, etc.)
+        # lifestyle area on the very first message → ask the pillar clarifier (not the generic menu)
         pillar = map_intent_to_pillar(text)
         if pillar:
+            set_state(user_id, **{"await": "pillar_detail", "pillar": pillar})
             LAST_SEEN[user_id] = now
-            return {"reply": compose_reply(pillar, text) + tag}
+            return {"reply": pillar_detail_prompt(pillar)}
 
         # health concern keywords (e.g., “cholesterol”, “ibs”, “anxiety”)
         concern_key = match_concern_key(text)
@@ -822,20 +875,29 @@ def route_message(user_id: str, text: str) -> dict:
         "lifestyle",
     ]):
         set_state(user_id, **{"await": "lifestyle_pillar"})
-        LAST_SEEN[user_id] = now
-        return {"reply": (
-            "Which *lifestyle area* would you like to focus on?\n"
-            "• Environment & Structure\n"
-            "• Nutrition & Gut Health\n"
-            "• Sleep\n"
-            "• Exercise & Movement\n"
-            "• Stress Management\n"
-            "• Thought Patterns\n"
-            "• Emotional Regulation\n"
-            "• Social Connection\n\n"
-            "Type the area (e.g., *sleep*)."
-        )}
-
+    
+        pillar = map_intent_to_pillar(text)
+        if pillar:
+            # we detected the pillar → jump straight to the clarifier
+            set_state(user_id, **{"await": "pillar_detail", "pillar": pillar})
+            LAST_SEEN[user_id] = now
+            return {"reply": pillar_detail_prompt(pillar)}
+        else:
+            # couldn’t detect → show the menu prompt (so the user can pick one)
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                "Which *lifestyle area* would you like to focus on?\n"
+                "• Environment & Structure\n"
+                "• Nutrition & Gut Health\n"
+                "• Sleep\n"
+                "• Exercise & Movement\n"
+                "• Stress Management\n"
+                "• Thought Patterns\n"
+                "• Emotional Regulation\n"
+                "• Social Connection\n\n"
+                "Type the area (e.g., *sleep*)."
+            )}
+            
     # --- Handle the user's pillar choice (after we asked for a lifestyle area)
     if get_state(user_id).get("await") == "lifestyle_pillar":
         # allow quick jump to baseline at any time
@@ -893,17 +955,10 @@ def route_message(user_id: str, text: str) -> dict:
                 "movement, stress, thoughts, emotions, or social."
             )}
 
-        # we got a pillar — move to a short clarifying step instead of instant advice
-        set_state(user_id, **{"await": "pillar_detail"}, pillar=pillar)
+        # >>> NEW: jump to your tailored clarifier
+        set_state(user_id, **{"await": "pillar_detail", "pillar": pillar})
         LAST_SEEN[user_id] = now
-        human = PILLARS.get(pillar, pillar.title())
-        return {"reply": (
-            f"Great — let’s focus on *{human}*.\n"
-            "What would you like help with there?\n"
-            "• Name a habit to change (e.g., “evening snacking”, “late bedtime”, “overthinking at night”).\n"
-            "• Or tell me if this is related to a health concern (e.g., anxiety, IBS, blood sugar).\n\n"
-            "You can also type *baseline* to do a 1-minute assessment first."
-        )}
+        return {"reply": pillar_detail_prompt(pillar)}
 
     # --- Follow-up after pillar choice: habit vs health concern ---------------
     if get_state(user_id).get("await") == "pillar_detail":
@@ -917,14 +972,24 @@ def route_message(user_id: str, text: str) -> dict:
             if bl is not None:
                 return bl
 
-        # see if they mentioned a health concern; if yes, offer programme/baseline/advice
+        # NEW: if they ask for general tips/suggestions, give pillar advice now
+        if any(k in lower for k in {"general tips", "tips", "advice", "suggestions"}):
+            set_state(user_id, **{"await": None})
+            LAST_SEEN[user_id] = now
+            extra = (
+                "\n\nEverything connects — improvements here support mood, stress, appetite and energy.\n"
+                "Would you like to set a SMARTS goal to track progress? Type *baseline*. "
+                "Or say *start* to begin the eity20 programme for this area."
+            )
+            return {"reply": compose_reply(chosen, f"general tips for {chosen}") + extra + tag}
+        
+        # If they named a health concern, branch to the concern/programme path
         concern_key = match_concern_key(text)
         if concern_key:
             LAST_CONCERN[user_id] = {"key": concern_key}
             set_state(user_id, **{"await": None})
             LAST_SEEN[user_id] = now
             prog_key = detect_program_key(text) or concern_key
-            pitch = program_pitch(prog_key) or "make steady progress"
             return {"reply": (
                 f"Thank you — I heard *{human_label_for(concern_key)}*.\n"
                 "Would you like to:\n"
@@ -933,10 +998,16 @@ def route_message(user_id: str, text: str) -> dict:
                 "3) Or get *advice* for today?\n"
                 f"{EITY20_TAGLINE}"
             )}
-        # otherwise, treat their message as the habit/context and give focused advice
+    
+        # Otherwise treat their message as habit/context → focused advice
         set_state(user_id, **{"await": None})
         LAST_SEEN[user_id] = now
-        return {"reply": compose_reply(chosen, text) + tag}
+        connection = (
+            "\n\nEverything links together — gains here can improve your mood, stress and overall health.\n"
+            "Want a SMARTS goal to monitor progress? Type *baseline*. "
+            "You can also *start* the eity20 programme for this area."
+        )
+        return {"reply": compose_reply(chosen, text) + connection + tag}
 
         # Optional: mid-conversation broad advice request → advice opening
         if is_advice_intent(text):
