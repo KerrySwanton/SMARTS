@@ -806,8 +806,8 @@ def route_message(user_id: str, text: str) -> dict:
                 "stress, thoughts, emotions, or social."
             )}
 
-        # we got a pillar — clear state and reply
-        set_state(user_id, await=None)
+        # we got a pillar - clear state and reply
+        clear_state(user_id)   # instead of set_state(user_id, await=None)
         LAST_SEEN[user_id] = now
         return {"reply": compose_reply(chosen, text)}
     
