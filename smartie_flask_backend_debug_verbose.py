@@ -444,7 +444,8 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
     - brief eity20 framing
     - show best starting pillar (+ next pillars)
     - 1 tailored leading question
-    - clear choice: advice vs baseline
+    - clear choices (advice/programme/goal)
+    - pillar-specific outcomes line
     """
     # human labels + pillar labels
     concern_label = human_label_for(concern_key)
@@ -454,29 +455,40 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
     rest_labels = [label_map.get(p, p.title()) for p in stack[1:]]
     rest_part = f" Next up: {', '.join(rest_labels)}." if rest_labels else ""
 
-    # 1) Empathetic opener (short, human, mirrors their concern)
-    opener = f"Thank you — {concern_label} can feel tough. Let's try and help you feel better and thrive by making small changes to your lifestyle that are simple and doable."
+    # 1) Empathetic opener
+    opener = (
+        f"Thank you — {concern_label} can feel tough. "
+        "Let’s make small, doable changes so you can feel better and thrive."
+    )
 
-    # 2) Micro eity20 framing (one line)
-    framing = ("We’ll use eity20’s pillars to make small changes with big impact "
-               "(80% consistent, 20% flexible — 100% human).")
+    # 2) Micro eity20 framing
+    framing = ("We’ll use eity20’s pillars with SMARTS (Sustainable, Mindful mindset, Aligned, "
+               "Realistic, Train your brain, Speak up) — 80% consistent, 20% flexible, 100% human.")
 
     # 3) Leading question (tailored)
     leading_q = leading_question_for(concern_key)
 
-    # 4) Clear choice
-    choice = (
-        "Would you like me to:\n"
-        "• **Share focused advice** for today (type: *advice*)\n"
-        "• **Do a 1-minute baseline** to prioritise your pillars (type: *baseline*)"
+    # 4) Options up-front (programme included; direct goal path)
+    programme_hint = program_pitch(first) or f"the eity20 programme for *{first_label}*"
+    choices = (
+        "Here are good next steps:\n"
+        "1) **Tell me more** — what do you think is driving this right now?\n"
+        f"2) **Start {programme_hint}** to see what it covers.\n"
+        "3) **Get helpful advice** — say *general tips* and I can share practical suggestions.\n"
+        f"4) **Set a SMARTS goal** for {first_label.lower()} — type *goal*.\n"
+        "5) **Not sure where to begin?** Type *baseline* for a 1-minute assessment to prioritise your pillars."
     )
+
+    # 5) Pillar-specific outcomes (ties benefits explicitly)
+    outcomes = PILLAR_OUTCOMES.get(first, "")
 
     return (
         f"{opener}\n\n"
         f"{framing}\n\n"
         f"For *{concern_label}*, the best place to start is **{first_label}**.{rest_part}\n\n"
         f"{leading_q}\n\n"
-        f"{choice}"
+        f"{choices}\n\n"
+        f"{outcomes}"
     )
 
 # --- Advice "programs" config (must be above route_message) ---
@@ -578,17 +590,55 @@ def related_concerns_for_pillar(pillar: str) -> str:
     items = RELATED_CONCERNS_BY_PILLAR.get(pillar, [])
     return ", ".join(items[:5])
 
+PILLAR_OUTCOMES = {
+    "sleep": (
+        "Better sleep can lift your mood, sharpen focus, improve memory, balance blood sugar, "
+        "reduce cravings, support immunity, help manage weight and improve energy."
+    ),
+    "nutrition": (
+        "Improving nutrition can ease gut issues, balance blood sugar, "
+        "reduce inflammation, improve bone health, reduce risk of chronic diseases, boost energy, and support brain health."
+    ),
+    "movement": (
+        "Moving more can reduce stress and anxiety, improve sleep, reduce risk of chronic diseases like type 2 diabetes, "
+        "boost mood, ease joint pain, and increase energy."
+    ),
+    "stress": (
+        "Managing stress can reduce anxiety, improve sleep, lower blood pressure, "
+        "calm digestion, improve mental clarity and strengthen your resilience."
+    ),
+    "thoughts": (
+        "Changing thought patterns can boost mood, regulate emotions, "
+        "reduce stress and anxiety, lift self-esteem, reduce inflammation, "
+        "and support healthier habits."
+    ),
+    "emotions": (
+        "Regulating emotions can improve relationships, reduce stress, "
+        "stabilise mood, cut down emotional eating, and support mental clarity."
+    ),
+    "environment": (
+        "Shaping your environment can make healthy habits easier, reduce distractions, "
+        "improve sleep routines, improve your mood, increase motivation, lower stress and improve your overall health."
+    ),
+    "social": (
+        "Strengthening social connections can lift mood, reduce loneliness, "
+        "increase motivation, protect heart health, improve immunity and build resilience."
+    ),
+}
+
 def pillar_detail_prompt(pillar: str) -> str:
     human = PILLARS.get(pillar, {}).get("label", pillar.title())
     related = related_concerns_for_pillar(pillar)
     programme_hint = program_pitch(pillar) or f"the eity20 programme for *{human}*"
     return (
         f"Great — let’s focus on *{human}*.\n\n"
-        f"Is there a reason you want help with this? For some people it’s linked to a health concern such as {related}.\n"
-        f"• If it’s due to a health concern, just name it (e.g., “type 2 diabetes”, “IBS”).\n"
-        f"• If you’d like suggestions, say **general tips** and I’ll share two tiny actions.\n\n"
-        f"Remember: everything links together — improving {human.lower()} helps your mood, stress, energy and overall health.\n\n"
-        f"You can also start {programme_hint} or type **baseline** to set a SMARTS goal to track progress."
+        f"Is there a reason you want help with this? For some people it’s linked to a health concern such as {related}.\n\n"
+        f"Here are a few ways we can continue:\n"
+        f"1) If it’s due to a health concern, just name it (e.g., “type 2 diabetes”, “IBS”).\n"
+        f"2) Start {programme_hint} to see what the programme covers.\n"
+        f"3) If you’d like suggestions, say **general tips** and I can share some helpful advice with you.\n"
+        f"4) Set a SMARTS goal for {human.lower()} — just type *goal*.\n\n"
+        f"{PILLAR_OUTCOMES.get(pillar, '')}"
     )
 
 # --- Advice intent (first-contact) -------------------------------------------
