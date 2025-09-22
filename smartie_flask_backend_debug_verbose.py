@@ -689,32 +689,101 @@ def route_message(user_id: str, text: str) -> dict:
                 + compose_reply(pillar, f"general advice: {topic}")
             )}
     
-    # --- Direct command: BASELINE (run early) ---
+    # ------------------------------------------------------------
+    #  A) Direct command: BASELINE (run early)
+    # ------------------------------------------------------------
     cmd = (text or "").strip().lower()
     if cmd in {"baseline", "start baseline", "start-baseline"}:
-        # 1) Try to seed the user's concern into baseline
+        # 1) Try to seed baseline with user's concern, if we have one
         seed_key = None
-        saved = LAST_CONCERN.get(user_id)  # <-- read BEFORE clearing
+        saved = LAST_CONCERN.get(user_id)  # read BEFORE clearing
         if saved:
             seed_key = saved.get("key") or saved.get("topic")
         seed_key = seed_key or match_concern_key(text)
     
-        # 2) Now optionally clear context so baseline owns the conversation
+        # 2) Clear context so baseline owns the conversation
         LAST_CONCERN.pop(user_id, None)
         STATE.pop(user_id, None)
     
-        # 3) Start baseline (seed if supported, else prepend a note)
+        # 3) Start baseline (prefer new signature with seed; fallback to old)
         try:
-            bl = handle_baseline(user_id, text, seed_concern=seed_key)  # preferred
+            bl = handle_baseline(user_id, text, seed_concern_key=seed_key)  # preferred
         except TypeError:
             preface = f"Great — we’ll keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
             bl = preface + (handle_baseline(user_id, text) or "")
     
         if bl is not None:
             LAST_SEEN[user_id] = now
-            return {"reply": bl} if isinstance(bl, str) else bl
+            return bl if not isinstance(bl, str) else {"reply": bl}
 
-    # --- Continue baseline if mid-session (run BEFORE any other branches) ---
+    # --- Lifestyle area intent: ask the user which pillar they want ---
+    if any(p in lower for p in [
+        "lifestyle area",
+        "choose lifestyle area",
+        "pick a lifestyle area",
+        "pick an area",
+        "choose an area",
+        "lifestyle focus"
+    ]):
+        set_state(user_id, await="lifestyle_pillar")
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            "Which *lifestyle area* would you like to focus on?\n"
+            "• Environment & Structure\n"
+            "• Nutrition & Gut Health\n"
+            "• Sleep\n"
+            "• Exercise & Movement\n"
+            "• Stress Management\n"
+            "• Thought Patterns\n"
+            "• Emotional Regulation\n"
+            "• Social Connection\n\n"
+            "Type the area (e.g., *sleep*)."
+        )}
+
+    # ------------------------------------------------------------
+    #  B) If we're waiting for a lifestyle pillar choice, handle it now
+    #     (STATE[user_id] = {"await": "lifestyle_pillar"})
+    # ------------------------------------------------------------
+    st = get_state(user_id)
+    if st.get("await") == "lifestyle_pillar":
+    
+        # Allow user to bail out to baseline at any time while choosing
+        if "baseline" in lower:
+            clear_state(user_id)
+            LAST_CONCERN.pop(user_id, None)
+            bl = handle_baseline(user_id, text)
+            if bl is not None:
+                LAST_SEEN[user_id] = now
+                return bl
+    
+        # Try to map their free text (e.g., "sleep", "nutrition") to a pillar
+        pillar = map_intent_to_pillar(text)   # your existing mapper (env/sleep/etc.)
+    
+        # If we couldn't understand, show the menu again
+        if not pillar:
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                "Got it — which area do you want to focus on?\n"
+                "• Environment & Structure\n"
+                "• Nutrition & Gut Health\n"
+                "• Sleep\n"
+                "• Exercise & Movement\n"
+                "• Stress Management\n"
+                "• Thought Patterns\n"
+                "• Emotional Regulation\n"
+                "• Social Connection\n\n"
+                "Just type the area (e.g., *sleep*)."
+            )}
+    
+        # We have a pillar: clear state, remember intent (optional), and reply
+        clear_state(user_id)
+        LAST_CONCERN[user_id] = {"topic": "lifestyle", "pillar": pillar}
+        LAST_SEEN[user_id] = now
+        return {"reply": compose_reply(pillar, text) + EITY20_TAGLINE}
+    
+    # ------------------------------------------------------------
+    #  C) Continue baseline if mid-session (run BEFORE any other branches)
+    # ------------------------------------------------------------
     bl = handle_baseline(user_id, text)
     if bl is not None:
         LAST_SEEN[user_id] = now
