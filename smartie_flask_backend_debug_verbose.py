@@ -716,14 +716,15 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return bl if not isinstance(bl, str) else {"reply": bl}
 
-    # --- Lifestyle area intent: ask the user which pillar they want ---
+    # --- Lifestyle area intent: invite the user to choose a pillar ---
     if any(p in lower for p in [
         "lifestyle area",
         "choose lifestyle area",
         "pick a lifestyle area",
         "pick an area",
         "choose an area",
-        "lifestyle focus"
+        "lifestyle focus",
+        "lifestyle"
     ]):
         set_state(user_id, await="lifestyle_pillar")
         LAST_SEEN[user_id] = now
@@ -738,56 +739,78 @@ def route_message(user_id: str, text: str) -> dict:
             "• Emotional Regulation\n"
             "• Social Connection\n\n"
             "Type the area (e.g., *sleep*)."
-        )}
+        )}    
 
-    # ------------------------------------------------------------
-    #  B) If we're waiting for a lifestyle pillar choice, handle it now
-    #     (STATE[user_id] = {"await": "lifestyle_pillar"})
-    # ------------------------------------------------------------
-    st = get_state(user_id)
-    if st.get("await") == "lifestyle_pillar":
-    
-        # Allow user to bail out to baseline at any time while choosing
+    # --- Handle the user's pillar choice (after we asked for a lifestyle area) ---
+    if get_state(user_id, "await") == "lifestyle_pillar":
+        # Normalise common inputs → pillar keys
+        pillar_map = {
+            "environment": "environment",
+            "structure": "environment",
+            "routine": "environment",
+
+            "nutrition": "nutrition",
+            "gut": "nutrition",
+            "food": "nutrition",
+            "diet": "nutrition",
+
+            "sleep": "sleep",
+
+            "exercise": "movement",
+            "movement": "movement",
+            "workout": "movement",
+            "steps": "movement",
+            "walk": "movement",
+
+            "stress": "stress",
+            "stress management": "stress",
+
+            "thoughts": "thoughts",
+            "mindset": "thoughts",
+            "self-talk": "thoughts",
+            "self talk": "thoughts",
+            "motivation": "thoughts",
+
+            "emotions": "emotions",
+            "emotional regulation": "emotions",
+            "feelings": "emotions",
+            "craving": "emotions",
+            "urge": "emotions",
+            "binge": "emotions",
+
+            "social": "social",
+            "connection": "social",
+            "friends": "social",
+            "lonely": "social",
+            "isolation": "social",
+        }
+
+        # allow quick jump to baseline if they change their mind
         if "baseline" in lower:
-            clear_state(user_id)
-            LAST_CONCERN.pop(user_id, None)
+            set_state(user_id, await=None)
+            LAST_SEEN[user_id] = now
             bl = handle_baseline(user_id, text)
             if bl is not None:
-                LAST_SEEN[user_id] = now
                 return bl
-    
-        # Try to map their free text (e.g., "sleep", "nutrition") to a pillar
-        pillar = map_intent_to_pillar(text)   # your existing mapper (env/sleep/etc.)
-    
-        # If we couldn't understand, show the menu again
-        if not pillar:
+
+        # detect chosen pillar
+        chosen = None
+        for key, canonical in pillar_map.items():
+            if key in lower:
+                chosen = canonical
+                break
+
+        if not chosen:
             LAST_SEEN[user_id] = now
             return {"reply": (
-                "Got it — which area do you want to focus on?\n"
-                "• Environment & Structure\n"
-                "• Nutrition & Gut Health\n"
-                "• Sleep\n"
-                "• Exercise & Movement\n"
-                "• Stress Management\n"
-                "• Thought Patterns\n"
-                "• Emotional Regulation\n"
-                "• Social Connection\n\n"
-                "Just type the area (e.g., *sleep*)."
+                "I didn’t catch that pillar. Please type one of: environment, nutrition, sleep, movement, "
+                "stress, thoughts, emotions, or social."
             )}
-    
-        # We have a pillar: clear state, remember intent (optional), and reply
-        clear_state(user_id)
-        LAST_CONCERN[user_id] = {"topic": "lifestyle", "pillar": pillar}
+
+        # we got a pillar — clear state and reply
+        set_state(user_id, await=None)
         LAST_SEEN[user_id] = now
-        return {"reply": compose_reply(pillar, text) + EITY20_TAGLINE}
-    
-    # ------------------------------------------------------------
-    #  C) Continue baseline if mid-session (run BEFORE any other branches)
-    # ------------------------------------------------------------
-    bl = handle_baseline(user_id, text)
-    if bl is not None:
-        LAST_SEEN[user_id] = now
-        return bl
+        return {"reply": compose_reply(chosen, text)}
     
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
