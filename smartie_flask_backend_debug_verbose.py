@@ -505,6 +505,33 @@ def detect_topic_from_text(text: str) -> str | None:
 # Build the program→pillar map (now that PROGRAMS exists)
 TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
 
+def start_baseline_now(user_id: str, text: str, now: datetime):
+    # 1) Try to seed baseline with the user’s last concern/topic or this message
+    seed_key = None
+    saved = LAST_CONCERN.get(user_id)
+    if saved:
+        seed_key = saved.get("key") or saved.get("topic")
+    seed_key = seed_key or match_concern_key(text)
+
+    # 2) Clear context so baseline owns the conversation
+    LAST_CONCERN.pop(user_id, None)
+    STATE.pop(user_id, None)
+
+    # 3) Start baseline (prefer new signature; fall back if older handle_baseline)
+    try:
+        bl = handle_baseline(user_id, text, seed_concern_key=seed_key)  # preferred
+    except TypeError:
+        preface = f"Great — we’ll keep *{human_label_for(seed_key)}* in mind.\n\n" if seed_key else ""
+        bl = preface + (handle_baseline(user_id, text) or "")
+
+    if bl is not None:
+        LAST_SEEN[user_id] = now
+        # Normalize to the router’s shape
+        return bl if isinstance(bl, dict) else {"reply": bl}
+
+    # If nothing came back, provide a nudge
+    return {"reply": "Okay — type *baseline* to begin the 1-minute assessment."}
+
 # ==================================================
 # Unified router
 # ==================================================
@@ -518,7 +545,7 @@ def route_message(user_id: str, text: str) -> dict:
     if first_time:
         # direct commands
         if lower in {"advice", "tip", "tips"}:
-            set_state(user_id, await="advice_topic")
+            set_state(user_id, **{"await": "advice_topic"})
             LAST_SEEN[user_id] = now
             return {"reply": (
                 "What advice would you like?\n"
@@ -775,7 +802,7 @@ def route_message(user_id: str, text: str) -> dict:
         )}
 
     # --- Handle the user's pillar choice (after we asked for a lifestyle area)
-    if get_state(user_id, "await") == "lifestyle_pillar":
+    if get_state(user_id).get("await") == "lifestyle_pillar":
         # allow quick jump to baseline at any time
         if "baseline" in lower:
             set_state(user_id, await=None)
@@ -844,8 +871,8 @@ def route_message(user_id: str, text: str) -> dict:
         )}
 
     # --- Follow-up after pillar choice: habit vs health concern ---------------
-    if get_state(user_id, "await") == "pillar_detail":
-        chosen = get_state(user_id, "pillar") or map_intent_to_pillar(text) or "nutrition"
+    if get_state(user_id).get("await") == "pillar_detail":
+        chosen = get_state(user_id).get("pillar") or map_intent_to_pillar(text) or "nutrition"
 
         # allow quick jump to baseline
         if "baseline" in lower:
@@ -866,7 +893,7 @@ def route_message(user_id: str, text: str) -> dict:
             return {"reply": (
                 f"Thanks — I heard *{human_label_for(concern_key)}*.\n"
                 "Would you like to:\n"
-                "1) Start an eity20 programme to " + pitch + " (type: *start*),\n"
+                f"1) Start {program_pitch(prog_key)} (type: *start*),\n"
                 "2) Do a 1-minute *baseline* to prioritise,\n"
                 "3) Or get *advice* for today?\n"
                 f"{EITY20_TAGLINE}"
