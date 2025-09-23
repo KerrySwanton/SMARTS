@@ -761,9 +761,12 @@ def route_message(user_id: str, text: str) -> dict:
             LAST_SEEN[user_id] = now
             return {"reply": pillar_detail_prompt(pillar)}
 
-    # 0) Greeting / welcome-back
+    # 0) Greetings — clean separation of first-time / return / long-gap
     last = LAST_SEEN.get(user_id)
-    if last is None:
+    first_time = last is None
+
+    # A) First ever message → full onboarding intro (unchanged)
+    if first_time:
         LAST_SEEN[user_id] = now
         intro = (
             "Hello, I'm Smartie. I am here to help you stay eity20 — "
@@ -777,14 +780,32 @@ def route_message(user_id: str, text: str) -> dict:
         )
         return {"reply": intro}
 
-    long_gap = (now - last) >= timedelta(hours=24)
-    said_hello = lower in {"hi", "hello", "hey", "hi smartie", "hello smartie"}
-    if long_gap or said_hello:
+    # B) “Hello/Hi/Hey” at any time → short welcome-back (don’t re-run onboarding)
+    greet_triggers = {
+        "hi", "hello", "hey", "hiya",
+        "hi smartie", "hello smartie", "hey smartie"
+    }
+    is_plain_greeting = (
+        lower in greet_triggers or
+        any(lower.startswith(t) and len(lower.split()) <= 3 for t in greet_triggers)
+    )
+
+    if is_plain_greeting:
         LAST_SEEN[user_id] = now
         return {"reply": (
             "Welcome back 👋\n\n"
-            "Remember, eity20 is about staying 80% consistent, 20% flexible — 100% human.\n\n"
-            "What’s on your mind today — a health concern, a lifestyle habit, or would you like some advice?"
+            "What’s on your mind today — a health concern, a lifestyle habit, or would you like some advice?\n"
+            "You can also say *baseline* to set a SMARTS goal, *goal* to set one now, "
+            "or mention an area like *sleep*, *nutrition*, or *stress*."
+        )}
+    
+    # C) Long gap (24h+) nudge — only if they didn’t just say “hi”
+    if (now - last) >= timedelta(hours=24):
+        LAST_SEEN[user_id] = now
+        return {"reply": (
+            "Good to see you again 👋\n\n"
+            "Remember: eity20 = 80% consistency, 20% flexibility — 100% human.\n"
+            "How can I help?"
         )}
 
     # 1) Safety first
