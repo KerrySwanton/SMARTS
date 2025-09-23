@@ -1076,14 +1076,19 @@ def route_message(user_id: str, text: str) -> dict:
         chosen = get_state(user_id).get("pillar") or map_intent_to_pillar(text) or "nutrition"
         human_label = PILLARS.get(chosen, {}).get("label", chosen.title())
 
-        # NEW: set a SMARTS goal now (without looping back to menus)
+        # NEW: set a SMARTS goal now (pillar-specific + quick picks)
         if any(k in lower for k in {"goal", "set goal", "smart goal", "set a goal"}):
             set_state(user_id, **{"await": "goal_text", "pillar": chosen})
             LAST_SEEN[user_id] = now
+        
+            opts = suggest_goals_for(chosen)  # uses your SUGGESTED_GOALS helper
             return {"reply": (
                 f"Let’s set a SMARTS goal for *{human_label}*.\n"
-                "What’s one small, realistic action you’d like to take in the next week? "
-                "For example: “lights out by 10:30pm on weeknights” or “add a palm of protein at lunch.”"
+                "Pick one to start or write your own:\n"
+                f"1) {opts[0]}\n"
+                f"2) {opts[1]}\n"
+                f"3) {opts[2]}\n\n"
+                "Reply **1**, **2**, or **3** — or type your own in your words."
             )}
 
         # allow quick jump to baseline
