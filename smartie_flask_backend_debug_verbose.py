@@ -951,7 +951,7 @@ def route_message(user_id: str, text: str) -> dict:
                       "eity20 helps people improve health & wellbeing through lifestyle change.)")
             LAST_SEEN[user_id] = now
             return {"reply": (
-                f"Brilliant – let’s begin {program_pitch(topic)}.\n"
+                f"Let’s begin {program_pitch(topic)}.\n"
                 f"{safety}\n\n"
                 + compose_reply(pillar, f"start programme: {topic}")
             )}
