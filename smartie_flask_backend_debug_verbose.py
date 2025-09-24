@@ -1239,7 +1239,7 @@ def route_message(user_id: str, text: str) -> dict:
         )
         if unsure or len(goal_text.split()) <= 2:
             options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
-            set_state(user_id, **{"await": "goal_text", "pillar": pillar, "opts": options})
+            set_state(user_id, **{"await": "goal_pick", "pillar": pillar, "opts": options})
             LAST_SEEN[user_id] = now
             return {"reply": (
                 f"Here are a few SMARTS goal ideas for *{human_label}*:\n"
@@ -1249,17 +1249,22 @@ def route_message(user_id: str, text: str) -> dict:
                 "Reply with **1**, **2**, or **3** to pick one — or type your own in your words."
             )}
 
-        if get_state(user_id).get("await") == "goal_text":
+        if get_state(user_id).get("await") == "goal_pick":
             user_input  = (text or "").strip()
             pillar      = get_state(user_id).get("pillar", "nutrition")
             human_label = PILLARS.get(pillar, {}).get("label", pillar.title())
         
-            if user_input in {"1", "2", "3"}:
-                idx     = int(user_input) - 1
+            if user_input in {"1","2","3"}:
                 options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
-                goal_text = options[idx]
+                idx = int(user_input) - 1
+                goal_text = options[idx] if 0 <= idx < len(options) else options[0]
             else:
                 goal_text = user_input
+            
+            # Fallback if user typed nothing or just spaces
+            if not goal_text.strip():
+                options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
+                goal_text = options[0]
         
             try:
                 from tracker import set_goal as tracker_set_goal  # optional
