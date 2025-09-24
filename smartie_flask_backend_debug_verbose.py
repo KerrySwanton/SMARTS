@@ -911,62 +911,79 @@ def route_message(user_id: str, text: str) -> dict:
                 "(e.g., anxiety, sleep, food, movement, IBS). Or type *baseline* if you’re not sure."
             )}
     
-        STATE.pop(user_id, None)                         # clear state
-        LAST_CONCERN[user_id] = {"topic": topic_key}     # <— REMEMBER the chosen topic
-    
-        pitch = program_pitch(topic_key)
+        STATE.pop(user_id, None)  # clear state
+
+        mapped_pillar = TOPIC_TO_PILLAR.get(topic_key) or map_intent_to_pillar(topic_key) or topic_key
+        
+        LAST_CONCERN[user_id] = {
+            "topic": topic_key,       # user’s words (e.g., “stress”, “IBS”)
+            "pillar": mapped_pillar   # eity20 category (e.g., “stress” → stress pillar)
+        }
+        
+        human_pillar = PILLARS.get(mapped_pillar, {}).get("label", mapped_pillar.title())
+        focus_name   = display_for_menu(topic_key, mapped_pillar)
+        pitch        = program_pitch(topic_key) or f"the eity20 programme for *{human_pillar}*"
+        
         LAST_SEEN[user_id] = now
         return {"reply": (
-            f"Great — we can focus on *{topic_key}*.\n\n"
+            f"Great — we can focus on *{focus_name}*.\n\n"
             "What would you like to do next?\n"
             f"1) Start {pitch}\n"
             "2) Do a quick *baseline* to prioritise what matters most\n"
             "3) Get *general advice* on this topic\n\n"
             "Reply with **1**, **2**, or **3**."
         )}
-
+    
+    def display_for_menu(topic_key: str, pillar_key: str) -> str:
+        """Prefer the user's topic for display; otherwise use the pillar's label."""
+        if topic_key and topic_key.strip():
+            return topic_key.strip()
+        return PILLARS.get(pillar_key, {}).get("label", (pillar_key or "").title())
+    
+    # Handle follow-up menu for advice on a chosen topic (1/2/3)
     if get_state(user_id).get("await") == "advice_choice" and cmd in {"1", "2", "3"}:
         saved = LAST_CONCERN.get(user_id, {})
-        topic = saved.get("topic")
     
-        # If we don't know the topic yet, ask for it first
-        if not topic and cmd in {"1", "3"}:
-            set_state(user_id, **{"await": "advice_choice"})
-            LAST_SEEN[user_id] = now
-            return {"reply": (
-                f"We can focus on *{topic}*.\n\n"
-                "What would you like to do next?\n"
-                "1) Start the programme for this pillar\n"
-                "2) Do a quick *baseline* to prioritise what matters most\n"
-                "3) Get *general advice* on this pillar\n\n"
-                "Reply with **1**, **2**, or **3**."
-            )}
-
-        if cmd == "2":
-            # Baseline path (use the unified helper that normalises outputs)
-            return start_baseline_now(user_id, text, now)
-
-        # Route topic → pillar for 1 or 3
-        pillar = TOPIC_TO_PILLAR.get(topic) or map_intent_to_pillar(topic) or "stress"
-
+        # Resolve the topic (user words) and the normalized pillar you’ll use for logic
+        topic  = (saved.get("topic") or "").strip()
+        pillar = (saved.get("pillar")
+                  or TOPIC_TO_PILLAR.get(topic)
+                  or map_intent_to_pillar(topic)
+                  or "nutrition")
+    
+        # Labels + display name (prefer user's words where possible)
+        human_pillar = PILLARS.get(pillar, {}).get("label", pillar.title())
+        focus_name   = display_for_menu(topic, pillar)  # <- NEW helper you added
+    
+        # Programme pitch (fall back to pillar-name version)
+        pitch = program_pitch(topic or pillar) or f"the eity20 programme for *{human_pillar}*"
+    
+        clear_state(user_id)
+        LAST_SEEN[user_id] = now
+    
         if cmd == "1":
-            # Start programme: short intro + two tiny, time-bound steps via your playbook
-            safety = ("(For information, this isn’t a medical diagnostic service. "
-                      "eity20 helps people improve health & wellbeing through lifestyle change.)")
-            LAST_SEEN[user_id] = now
+            # Start the programme (short intro + playbook advice)
+            safety = ("(For information: this isn’t a medical diagnostic service. "
+                      "eity20 supports health & wellbeing via lifestyle change.)")
             return {"reply": (
-                f"Let’s begin {program_pitch(topic)}.\n"
-                f"{safety}\n\n"
-                + compose_reply(pillar, f"start programme: {topic}")
+                f"Brilliant — let’s begin {pitch}.\n{safety}\n\n"
+                + compose_reply(pillar, f"start programme: {focus_name}")
             )}
-
+    
+        if cmd == "2":
+            # Quick baseline (your unified helper)
+            return start_baseline_now(user_id, text, now)
+    
         if cmd == "3":
-            # General advice on this topic (same engine, just without the programme preamble)
-            LAST_SEEN[user_id] = now
+            # General tips for this pillar/topic
+            extra = (
+                "\n\nEverything connects — improvements here support your mind, body and gut health.\n"
+                "Want a SMARTS goal to monitor progress? Type *goal*."
+            )
             return {"reply": (
                 "Here are two small actions you can try today 👇\n"
-                f"(Pillar: {pillar.title()})\n\n"
-                + compose_reply(pillar, f"general advice: {topic}")
+                f"(Focus: {focus_name} — Pillar: {human_pillar})\n\n"
+                + compose_reply(pillar, f"general advice: {focus_name}") + extra
             )}
     
     # ------------------------------------------------------------
@@ -1221,7 +1238,7 @@ def route_message(user_id: str, text: str) -> dict:
             ])
         )
         if unsure or len(goal_text.split()) <= 2:
-            options = suggest_goals_for(pillar)
+            options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
             set_state(user_id, **{"await": "goal_text", "pillar": pillar, "opts": options})
             LAST_SEEN[user_id] = now
             return {"reply": (
@@ -1233,37 +1250,35 @@ def route_message(user_id: str, text: str) -> dict:
             )}
 
         if get_state(user_id).get("await") == "goal_text":
-            user_input = (text or "").strip()
-            pillar = get_state(user_id).get("pillar", "nutrition")
+            user_input  = (text or "").strip()
+            pillar      = get_state(user_id).get("pillar", "nutrition")
             human_label = PILLARS.get(pillar, {}).get("label", pillar.title())
-    
-        # Map 1/2/3 to your suggested goals for this pillar
-        if user_input in {"1", "2", "3"}:
-            idx = int(user_input) - 1
-            options = suggest_goals_for(pillar)  # uses your SUGGESTED_GOALS dict
-            goal_text = options[idx]
-        else:
-            goal_text = user_input
-    
-        # Save goal (tracker or in-memory)
-        try:
-            from tracker import set_goal as tracker_set_goal  # optional
-            tracker_set_goal(user_id=user_id, text=goal_text, pillar_key=pillar, cadence="most days")
-            saved_via_tracker = True
-        except Exception:
-            saved_via_tracker = False
-    
-        if not saved_via_tracker:
-            PENDING_GOALS[user_id] = {"text": goal_text, "pillar": pillar, "cadence": "most days"}
-    
-        clear_state(user_id)
-        LAST_SEEN[user_id] = now
-        return {"reply": (
-            f"Goal saved: “{goal_text}” (Pillar: {human_label}).\n"
-            "Aim for about **80% consistency** — the eity20 way.\n"
-            "To track it: reply **done** on days you do it, and **progress** anytime to see your last 14 days.\n\n"
-            "Would you like a couple of helpful tips for this area? Say **general tips**."
-        )}
+        
+            if user_input in {"1", "2", "3"}:
+                idx     = int(user_input) - 1
+                options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
+                goal_text = options[idx]
+            else:
+                goal_text = user_input
+        
+            try:
+                from tracker import set_goal as tracker_set_goal  # optional
+                tracker_set_goal(user_id=user_id, text=goal_text, pillar_key=pillar, cadence="most days")
+                saved_via_tracker = True
+            except Exception:
+                saved_via_tracker = False
+        
+            if not saved_via_tracker:
+                PENDING_GOALS[user_id] = {"text": goal_text, "pillar": pillar, "cadence": "most days"}
+        
+            clear_state(user_id)
+            LAST_SEEN[user_id] = now
+            return {"reply": (
+                f"Goal saved: “{goal_text}” (Pillar: {human_label}).\n"
+                "Aim for about **80% consistency** — the eity20 way.\n"
+                "To track it: reply **done** on days you do it, and **progress** anytime to see your last 14 days.\n\n"
+                "Want a couple of helpful tips for this area? Say **general tips**."
+            )}
 
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
