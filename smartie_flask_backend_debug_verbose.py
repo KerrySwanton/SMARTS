@@ -42,6 +42,7 @@ def clear_state(uid: str) -> None:
 from collections import defaultdict
 
 GOAL_LOG: dict[str, list] = defaultdict(list)
+INTRO_SHOWN: dict[str, bool] = {}
 
 # ==================================================
 # Safety-first + concern mapping + intent helpers
@@ -763,15 +764,27 @@ def route_message(user_id: str, text: str) -> dict:
 
     # 0) Greetings — clean separation of first-time / return / long-gap
     last = LAST_SEEN.get(user_id)
-    first_time = last is None
-
-    # A) First ever message → full onboarding intro (unchanged)
-    if first_time:
+    lower = (text or "").strip().lower()
+    
+    greet_triggers = {
+        "hi", "hello", "hey", "hiya", "hi smartie", "hello smartie", "hey smartie"
+    }
+    is_plain_greeting = (
+        lower in greet_triggers
+        or any(lower.startswith(t) and len(lower.split()) <= 3 for t in greet_triggers)
+    )
+    
+    # Treat "first time" as "we've never shown the intro to this user in this deployment"
+    first_time = not INTRO_SHOWN.get(user_id, False)
+    
+    # A) True first-time users → show full onboarding once
+    if first_time and (is_plain_greeting or not lower):
+        INTRO_SHOWN[user_id] = True
         LAST_SEEN[user_id] = now
         intro = (
             "Hello, I'm Smartie. I am here to help you stay eity20 — "
             "80% consistent, 20% flexible, 100% human.\n\n"
-            "How would you like me to support your health & wellbeing journey?\n\n"
+            "How would you like me to support your health & wellbeing journey?\n"
             "• Type a *health concern* (e.g. cholesterol, depression, IBS)\n"
             "• Type a *lifestyle area* (sleep, nutrition, movement, stress)\n"
             "• Type *advice* for general tips\n"
@@ -779,28 +792,24 @@ def route_message(user_id: str, text: str) -> dict:
             "Aim for 80% consistency, 20% flexibility — 100% human."
         )
         return {"reply": intro}
-
-    # B) “Hello/Hi/Hey” at any time → short welcome-back (don’t re-run onboarding)
-    greet_triggers = {
-        "hi", "hello", "hey", "hiya",
-        "hi smartie", "hello smartie", "hey smartie"
-    }
-    is_plain_greeting = (
-        lower in greet_triggers or
-        any(lower.startswith(t) and len(lower.split()) <= 3 for t in greet_triggers)
-    )
-
+    
+    # If it’s their first message but they typed a real request (not just “hi”),
+    # don’t block them with the long intro; mark it shown and continue normally.
+    if first_time:
+        INTRO_SHOWN[user_id] = True
+        # (no return here; let the router continue to handle their request)
+    
+    # B) Short welcome-back on simple greetings (any time)
     if is_plain_greeting:
         LAST_SEEN[user_id] = now
         return {"reply": (
             "Welcome back 👋\n\n"
             "What’s on your mind today — a health concern, a lifestyle habit, or would you like some advice?\n"
-            "You can also say *baseline* to set a SMARTS goal, *goal* to set one now, "
-            "or mention an area like *sleep*, *nutrition*, or *stress*."
+            "You can also say *baseline* to set a SMARTS goal now, or mention an area like *sleep*, *nutrition*, or *stress*."
         )}
     
     # C) Long gap (24h+) nudge — only if they didn’t just say “hi”
-    if (now - last) >= timedelta(hours=24):
+    if last and (now - last) >= timedelta(hours=24):
         LAST_SEEN[user_id] = now
         return {"reply": (
             "Good to see you again 👋\n\n"
