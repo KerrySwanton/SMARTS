@@ -1262,9 +1262,11 @@ def route_message(user_id: str, text: str) -> dict:
                 goal_text = user_input
             
             # Fallback if user typed nothing or just spaces
+            used_fallback = False
             if not goal_text.strip():
                 options = get_state(user_id).get("opts") or suggest_goals_for(pillar)
                 goal_text = options[0]
+                used_fallback = True
         
             try:
                 from tracker import set_goal as tracker_set_goal  # optional
@@ -1278,12 +1280,24 @@ def route_message(user_id: str, text: str) -> dict:
         
             clear_state(user_id)
             LAST_SEEN[user_id] = now
-            return {"reply": (
+            
+            reply_text = (
                 f"Goal saved: “{goal_text}” (Pillar: {human_label}).\n"
                 "Aim for about **80% consistency** — the eity20 way.\n"
                 "To track it: reply **done** on days you do it, and **progress** anytime to see your last 14 days.\n\n"
                 "Want a couple of helpful tips for this area? Say **general tips**."
-            )}
+            )
+            
+            if used_fallback:
+                reply_text = (
+                    f"You didn’t type a goal, so I’ve chosen a default one for you:\n"
+                    f"“{goal_text}” (Pillar: {human_label}).\n\n"
+                    "Aim for about **80% consistency** — the eity20 way.\n"
+                    "To track it: reply **done** on days you do it, and **progress** anytime to see your last 14 days.\n\n"
+                    "Want a couple of helpful tips for this area? Say **general tips**."
+                )
+            
+            return {"reply": reply_text}
 
     # 3) Human menu triggers for open-ended requests
     MENU_TRIGGERS = {
