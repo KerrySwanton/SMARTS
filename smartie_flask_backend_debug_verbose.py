@@ -552,6 +552,12 @@ def detect_topic_from_text(text: str) -> str | None:
 # Build the program→pillar map (now that PROGRAMS exists)
 TOPIC_TO_PILLAR = {k: v["pillar"] for k, v in PROGRAMS.items()}
 
+def display_for_menu(topic_key: str, pillar_key: str) -> str:
+        """Prefer the user's topic for display; otherwise use the pillar's label."""
+        if topic_key and topic_key.strip():
+            return topic_key.strip()
+        return PILLARS.get(pillar_key, {}).get("label", (pillar_key or "").title())
+
 def start_baseline_now(user_id: str, text: str, now: datetime):
     # 1) Try to seed baseline with the user’s last concern/topic or this message
     seed_key = None
@@ -932,6 +938,8 @@ def route_message(user_id: str, text: str) -> dict:
         human_pillar = PILLARS.get(mapped_pillar, {}).get("label", mapped_pillar.title())
         focus_name   = display_for_menu(topic_key, mapped_pillar)
         pitch        = program_pitch(topic_key) or f"the eity20 programme for *{human_pillar}*"
+
+        set_state(user_id, **{"await": "advice_choice"})
         
         LAST_SEEN[user_id] = now
         return {"reply": (
@@ -942,12 +950,6 @@ def route_message(user_id: str, text: str) -> dict:
             "3) Get *general advice* on this topic\n\n"
             "Reply with **1**, **2**, or **3**."
         )}
-    
-    def display_for_menu(topic_key: str, pillar_key: str) -> str:
-        """Prefer the user's topic for display; otherwise use the pillar's label."""
-        if topic_key and topic_key.strip():
-            return topic_key.strip()
-        return PILLARS.get(pillar_key, {}).get("label", (pillar_key or "").title())
     
     # Handle follow-up menu for advice on a chosen topic (1/2/3)
     if get_state(user_id).get("await") == "advice_choice" and cmd in {"1", "2", "3"}:
