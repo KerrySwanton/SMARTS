@@ -1356,10 +1356,15 @@ def route_message(user_id: str, text: str) -> dict:
     stack = detect_priority_stack(text)
     if stack:
         key = match_concern_key(text) or "blood sugar"
-        reply = make_concern_intro_reply(key, stack, user_text=text)
         LAST_CONCERN[user_id] = {"key": key, "stack": stack}
+        set_state(user_id, **{
+            "await": "concern_choice",
+            "concern": key,
+            "first": stack[0],
+            "stack": stack,
+        })
         LAST_SEEN[user_id] = now
-        return {"reply": reply + tag}
+        return {"reply": make_concern_intro_reply(key, stack, user_text=text) + tag}
 
     # 5) Pillar advice (direct keyword routing)
     if any(k in lower for k in ["environment", "structure", "routine", "organise", "organize"]):
