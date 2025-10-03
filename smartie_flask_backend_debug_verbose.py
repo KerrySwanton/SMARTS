@@ -275,8 +275,11 @@ def detect_priority_stack(text: str) -> list[str]:
         (("menopause","perimenopause","peri-menopause"),             ["sleep","stress","emotions","social"]),
         (("hypertension","high blood pressure","blood pressure"),    ["nutrition","movement","stress","sleep"]),
         (("osteoarthritis","arthritis","joint pain"),                ["movement","stress","environment","sleep"]),
-        (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"),
+        (("coronary heart disease","chd","atrial fibrillation","afib",
+          "a-fib","heart problem","heart problems","heart issue","heart issues",
+          "heart condition","heart disease","cardiac","cardio","heart health"),
                                                                      ["nutrition","movement","stress","sleep"]),
+
         (("copd","asthma","breathing difficulties","sleep apnoea","sleep apnea"),
                                                                      ["movement","sleep","stress","environment"]),
         (("liver disease","alcohol-related liver disease","arld",
@@ -406,6 +409,9 @@ CONCERN_ALIASES: list[tuple[tuple[str, ...], str]] = [
     (("menopause","perimenopause","peri-menopause"), "menopause"),
     (("osteoarthritis","arthritis","joint pain"), "joint"),
     (("coronary heart disease","chd","atrial fibrillation","afib","a-fib"), "cvd"),
+    (("heart problem","heart problems","heart issue","heart issues",
+      "heart condition","heart disease","cardiac","cardio",
+      "heart health","heart risk","palpitations","cardiovascular disease"), "cvd"),
     (("copd","asthma","sleep apnoea","sleep apnea","breathing difficulties"), "breathing"),
     (("liver disease","nafld","fatty liver","arld"), "liver"),
     (("ckd","kidney disease"), "kidney"),
@@ -474,23 +480,36 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
     leading_q = leading_question_for(concern_key)
 
     # 4) Options up-front (programme included; direct goal path)
+    # --- choices + return (replace your existing block from programme_hint down) ---
+
+    # Soft recommendation text (no “best place to start is …”)
+    if rest_labels:
+        recommendation = (
+            f"For *{concern_label}*, many people begin with **{first_label}**; "
+            f"other helpful areas include {', '.join(rest_labels)}."
+        )
+    else:
+        recommendation = (
+            f"For *{concern_label}*, many people begin with **{first_label}**."
+        )
+    
+    # Keep your original 1–5 menu
     programme_hint = f"the eity20 programme for *{first_label}*"
     choices = (
         "Here are good next steps:\n"
         "1) **Tell me more** — what do you think is driving this right now?\n"
         f"2) **Start {programme_hint}** to see what it covers.\n"
-        "3) **Get helpful advice** — say *general tips* and I can share practical suggestions.\n"
+        "3) **Get helpful advice** — say *general tips* and I’ll share practical suggestions.\n"
         f"4) **Set a SMARTS goal** for {first_label.lower()} — type *goal*.\n"
         "5) **Not sure where to begin?** Type *baseline* for a 1-minute assessment to prioritise your pillars."
     )
-
-    # 5) Pillar-specific outcomes (ties benefits explicitly)
+    
     outcomes = PILLAR_OUTCOMES.get(first, "")
-
+    
     return (
         f"{opener}\n\n"
         f"{framing}\n\n"
-        f"For *{concern_label}*, the best place to start is **{first_label}**.{rest_part}\n\n"
+        f"{recommendation}\n\n"
         f"{leading_q}\n\n"
         f"{choices}\n\n"
         f"{outcomes}"
@@ -758,6 +777,12 @@ def route_message(user_id: str, text: str) -> dict:
         if concern_key:
             stack = detect_priority_stack(text) or [concern_key]
             LAST_CONCERN[user_id] = {"key": concern_key, "stack": stack}
+            set_state(user_id, **{
+                "await": "concern_choice",
+                "concern": concern_key,
+                "first": stack[0],
+                "stack": stack,
+            })
             LAST_SEEN[user_id] = now
             return {"reply": make_concern_intro_reply(concern_key, stack, user_text=text) + tag}
 
