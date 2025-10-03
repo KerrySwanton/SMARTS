@@ -518,21 +518,43 @@ def make_concern_intro_reply(concern_key: str, stack: list[str], user_text: str 
 # --- Advice "programs" config (must be above route_message) ---
 
 PROGRAMS = {
-    "anxiety":    {"label": "reduce anxiety",            "pillar": "stress"},
-    "emotions":   {"label": "regulate your emotions",    "pillar": "emotions"},
-    "sleep":      {"label": "sleep better",              "pillar": "sleep"},
-    "nutrition":  {"label": "eat for steady energy",     "pillar": "nutrition"},
-    "movement":   {"label": "move more, feel better",    "pillar": "movement"},
+    "anxiety":   {"label": "reduce anxiety",             "pillar": "stress"},
+    "emotions":  {"label": "regulate your emotions",     "pillar": "emotions"},
+    "sleep":     {"label": "sleep better",               "pillar": "sleep"},
+
+    # Base label is neutral; variants below will override it when a concern is known
+    "nutrition": {"label": "improve nutrition & gut health", "pillar": "nutrition"},
+    "movement":  {"label": "move more, feel better",     "pillar": "movement"},
 }
 
-# Map many user words to one program key
+# Optional, but powerful: concern-specific variants for programme titles
+PROGRAM_VARIANT_LABELS = {
+    "nutrition": {
+        "cholesterol":  "lower cholesterol with food",
+        "blood sugar":  "balance blood sugar with food",
+        "ibs":          "calm your gut with nutrition",
+        "reflux":       "reduce reflux with food timing & swaps",
+        "weight":       "GLP-1–friendly nutrition",
+        "glp-1":        "GLP-1–friendly nutrition",
+    },
+    "movement": {
+        "joint":         "protect your joints with gentle movement",
+        "low mood":      "lift mood with small daily movement",
+        "blood pressure":"lower blood pressure with movement",
+    },
+}
+
 PROGRAM_ALIASES = [
-    (("anxiety","anxious","worry","worries","worrying","panic"),                        "anxiety"),
-    (("emotion","emotions","urge","craving","binge","comfort eat","comfort-eat"),       "emotions"),
-    (("sleep","insomnia","can't sleep","cant sleep","tired","wake"),                    "sleep"),
-    (("food","nutrition","diet","snack","snacking","eat","eating","ibs"),               "nutrition"),
-    (("exercise","move","movement","walk","steps","workout"),                           "movement"),
+    (("anxiety","anxious","worry","worries","worrying","panic"), "anxiety"),
+    (("emotion","emotions","urge","craving","binge","comfort eat","comfort-eat"), "emotions"),
+    (("sleep","insomnia","can't sleep","tired","wake"), "sleep"),
+    (("food","nutrition","diet","snack","snacking","eat","eating","ibs"), "nutrition"),
+    (("exercise","move","movement","walk","steps","workout"), "movement"),
 ]
+
+def mentions_glp1(text: str) -> bool:
+    t = (text or "").lower()
+    return any(w in t for w in ["glp-1", "glp1", "ozempic", "wegovy", "mounjaro", "tirzepatide", "semaglutide"])
 
 def detect_program_key(text: str) -> str | None:
     t = (text or "").lower()
@@ -541,11 +563,29 @@ def detect_program_key(text: str) -> str | None:
             return key
     return None
 
-def program_pitch(key: str) -> str:
-    p = PROGRAMS.get(key)
-    if not p:
+def program_pitch_context(topic_key: str, concern_key: str | None = None, user_text: str | None = None) -> str:
+    """Return a context-aware programme pitch."""
+    base = PROGRAMS.get(topic_key)
+    if not base:
         return ""
-    return f"an eity20 programme to **{p['label']}** (Pillar: {p['pillar'].title()})"
+
+    # pick variant label when the concern suggests a better headline
+    label = base["label"]
+    variants = PROGRAM_VARIANT_LABELS.get(topic_key, {})
+
+    # Special case: GLP-1 words in the user text
+    if user_text and mentions_glp1(user_text):
+        concern_key = concern_key or "glp-1"
+
+    if concern_key:
+        label = variants.get(concern_key, label)
+
+    pillar = base["pillar"]
+    human_pillar = PILLARS.get(pillar, {}).get("label", pillar.title())
+    return f"an eity20 programme to **{label}** (Pillar: {human_pillar})"
+
+def program_pitch(key: str) -> str:
+    return program_pitch_context(key)
 
 # Quick checks for “start a programme” intent
 START_WORDS   = ("start","begin","try","do","kick off","start a","begin a")
@@ -962,7 +1002,9 @@ def route_message(user_id: str, text: str) -> dict:
         
         human_pillar = PILLARS.get(mapped_pillar, {}).get("label", mapped_pillar.title())
         focus_name   = display_for_menu(topic_key, mapped_pillar)
-        pitch        = program_pitch(topic_key) or f"the eity20 programme for *{human_pillar}*"
+        ck = LAST_CONCERN.get(user_id, {}).get("key")  # may be None
+        pitch = program_pitch_context(topic_key, concern_key=ck, user_text=text) \
+                or f"the eity20 programme for *{human_pillar}*"
 
         set_state(user_id, **{"await": "advice_choice"})
         
@@ -992,7 +1034,9 @@ def route_message(user_id: str, text: str) -> dict:
         focus_name   = display_for_menu(topic, pillar)  # <- NEW helper you added
     
         # Programme pitch (fall back to pillar-name version)
-        pitch = program_pitch(topic or pillar) or f"the eity20 programme for *{human_pillar}*"
+        ck = LAST_CONCERN.get(user_id, {}).get("key")  # may be None
+        pitch = program_pitch_context(topic or pillar, concern_key=ck, user_text=text) \
+                or f"the eity20 programme for *{human_pillar}*"
     
         clear_state(user_id)
         LAST_SEEN[user_id] = now
